@@ -1,0 +1,51 @@
+name: QualityTime
+description: Low-bandwidth, high-quality P2P voice/video calling app.
+publish_to: 'none'
+version: 0.6.0+20
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_webrtc: ^1.6.2+hotfix.3
+  livekit_client: ^2.11.0
+  record: ^6.0.0
+  supabase_flutter: ^2.5.6
+  permission_handler: ^11.3.1
+  provider: ^6.1.2
+  firebase_core: ^4.15.0
+  firebase_messaging: ^16.7.0
+  flutter_callkit_incoming: ^3.1.6
+  shared_preferences: ^2.5.5
+  wakelock_plus: ^1.7.0
+  google_sign_in: ^7.2.0
+  audioplayers: ^6.1.0
+  flutter_local_notifications: 19.4.2
+  ota_update: ^7.1.0
+  package_info_plus: ^10.2.2
+  url_launcher: ^6.3.3
+  image_picker: ^1.2.3
+  flutter_overlay_window: ^0.5.0
+  android_intent_plus: ^6.1.0
+  cached_network_image: ^3.4.1
+  file_selector: ^1.1.0
+  path_provider: ^2.1.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/
+    - assets/sounds/
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  remove_alpha_ios: true

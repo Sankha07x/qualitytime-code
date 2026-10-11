@@ -1,0 +1,62 @@
+{
+  "project_info": {
+    "project_number": "398679981384",
+    "project_id": "qualitytime-4cc72",
+    "storage_bucket": "qualitytime-4cc72.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:398679981384:android:956338ce7a002ad4d0477d",
+        "android_client_info": {
+          "package_name": "com.qualitytime.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "398679981384-80lh0j6gncrevucht3l0l6sftceruvdb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.qualitytime.app",
+            "certificate_hash": "6bf133072c84c71f8d9c1871cb86c10168caf7b2"
+          }
+        },
+        {
+          "client_id": "398679981384-p1sdd8hf28b98m61218hjc0hiknjbacd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.qualitytime.app",
+            "certificate_hash": "1a485bd0c035c819a71119e2e4808195d7de75ee"
+          }
+        },
+        {
+          "client_id": "398679981384-cls5ju3m8bsh8ral57i7vgm1n0jo2eqo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAkWYUTE2n9DcQgKtr8VKeDy34N9rMWG_0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "398679981384-cls5ju3m8bsh8ral57i7vgm1n0jo2eqo.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "398679981384-hp8u3gtkk8uos7enm6iocklhjk6acoep.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.p2pCallApp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
