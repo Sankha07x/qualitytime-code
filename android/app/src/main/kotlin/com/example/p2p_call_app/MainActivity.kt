@@ -15,6 +15,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.os.Bundle
+import android.util.Log
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -85,6 +86,33 @@ class MainActivity : FlutterActivity() {
                 }
                 "shareOff" -> {
                     stopService(Intent(this, ScreenShareService::class.java))
+                    result.success(null)
+                }
+"fxVideo" -> {
+                    try {
+                        val a = call.arguments as? Map<*, *>
+                        VideoFx.configure(
+                            trackId = a?.get("trackId")?.toString() ?: "",
+                            mode = (a?.get("mode") as? Int) ?: 0,
+                            denoise = (a?.get("denoise") as? Boolean) ?: false,
+                            fast = (a?.get("fast") as? Boolean) ?: false,
+                            bgPath = a?.get("bgPath")?.toString() ?: "",
+                            context = applicationContext,
+                            onAutoOff = { why ->
+                                runOnUiThread { channel?.invokeMethod("fxAutoOff", why) }
+                            }
+                        )
+                    } catch (e: Throwable) {
+                        Log.w("QT_FX", "fxVideo failed: $e")
+                    }
+                    result.success(null)
+                }
+                "fxAudio" -> {
+                    try {
+                        RnnoiseFx.setEnabled((call.arguments as? Boolean) ?: false)
+                    } catch (e: Throwable) {
+                        Log.w("QT_FX", "fxAudio failed: $e")
+                    }
                     result.success(null)
                 }
                 "leave" -> {

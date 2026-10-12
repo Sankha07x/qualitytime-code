@@ -32,10 +32,14 @@ android {
 
     defaultConfig {
         applicationId = "com.qualitytime.app"
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(flutter.minSdkVersion, 24)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+androidResources {
+        noCompress += listOf("tflite")
     }
 
     signingConfigs {
@@ -50,6 +54,7 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
+            proguardFiles("proguard-rules.pro")
         }
     }
 }
@@ -60,4 +65,6 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
+    compileOnly("io.github.webrtc-sdk:android:150.7871.01")
 }

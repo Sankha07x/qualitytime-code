@@ -14,6 +14,8 @@ import '../../utils/settings/app_settings.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import '../../utils/lock_screen.dart';
 import '../../utils/glass.dart';
+import '../../core/webrtc/fx_bridge.dart';
+import '../settings/effects_screen.dart';
 
 class CallScreen extends StatefulWidget {
   final CallController controller;
@@ -60,6 +62,13 @@ class _CallScreenState extends State<CallScreen> {
         setState(() => _pip = c.arguments == true);
       } else if (c.method == 'pipAction') {
         _pipAction(c.arguments?.toString() ?? '');
+      } else if (c.method == 'fxAutoOff') {
+        FxBridge.handleAutoOff(c.arguments?.toString() ?? '').then((msg) {
+          if (mounted && msg != null) {
+            ScaffoldMessenger.of(context)
+                .showSnackBar(SnackBar(content: Text(msg)));
+          }
+        });
       }
     });
     widget.controller.phase.addListener(_syncPip);
@@ -366,23 +375,32 @@ class _CallScreenState extends State<CallScreen> {
               ),
             ),
 
-            // Dark fade at top and bottom so text/buttons show on bright video
-            const Positioned.fill(
+            // Dark fade or wallpaper-tinted fade at top and bottom so text/buttons show on bright video
+            Positioned.fill(
               child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black54,
-                        Colors.transparent,
-                        Colors.transparent,
-                        Colors.black54,
-                      ],
-                      stops: [0.0, 0.25, 0.7, 1.0],
-                    ),
-                  ),
+                child: ValueListenableBuilder<String?>(
+                  valueListenable: AppSettings.wallpaper,
+                  builder: (context, wp, _) {
+                    final hasWp = wp != null && AppSettings.wallpaperOnCall.value;
+                    final topColor = hasWp
+                        ? Colors.black.withOpacity(0.68)
+                        : Colors.black54;
+                    return DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            topColor,
+                            Colors.transparent,
+                            Colors.transparent,
+                            Colors.black54,
+                          ],
+                          stops: const [0.0, 0.25, 0.7, 1.0],
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ),
@@ -425,6 +443,29 @@ class _CallScreenState extends State<CallScreen> {
                         style: const TextStyle(color: Colors.white70),
                       ),
                     ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Top right buttons: Effects and Add participants
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'Add participants',
+                    icon: const Icon(Icons.person_add_alt_1, color: Colors.white),
+                    onPressed: _addParticipants,
+                  ),
+                  IconButton(
+                    tooltip: 'Effects',
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const EffectsScreen()),
+                    ),
+                    icon: const Icon(Icons.auto_awesome, color: Colors.white),
                   ),
                 ],
               ),
@@ -585,6 +626,41 @@ class _CallScreenState extends State<CallScreen> {
               ),
             ),
 
+            // Remote-on-hold overlay
+            ValueListenableBuilder<bool>(
+              valueListenable: widget.controller.remoteOnHold,
+              builder: (context, held, _) {
+                if (!held) return const SizedBox.shrink();
+                return Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedOpacity(
+                      opacity: held ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 300),
+                      child: Container(
+                        color: Colors.black54,
+                        child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.phone_paused,
+                                color: Colors.white70, size: 48),
+                            SizedBox(height: 12),
+                            Text(
+                              'Call on hold',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+
             // Local video preview, small corner box
             if (widget.controller.mediaManager.hasVideo &&
                 widget.controller.cameraEnabled)
@@ -667,7 +743,18 @@ class _CallScreenState extends State<CallScreen> {
                           highlighted: widget.controller.screenSharing.value,
                           onPressed: _toggleShare,
                         ),
+                        ValueListenableBuilder<bool>(
+                          valueListenable: widget.controller.onHold,
+                          builder: (context, held, _) => AnimatedCallButton(
+                            icon: Icons.phone_paused,
+                            highlighted: held,
+                            onPressed: () async {
+                              await widget.controller.toggleHold();
+                            },
+                          ),
+                        ),
                         if (widget.controller.mediaManager.hasVideo &&
+                            widget.controller.cameraEnabled &&
                             !widget.controller.screenSharing.value)
                           AnimatedCallButton(
                             icon: Icons.cameraswitch,
@@ -726,6 +813,38 @@ class _CallScreenState extends State<CallScreen> {
         ),
       ),
     ));
+  }
+
+  void _addParticipants() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        decoration: const BoxDecoration(
+          color: Color(0xFF1A2B2B),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.people_alt_outlined, color: Colors.white70, size: 40),
+            SizedBox(height: 12),
+            Text(
+              'Add Participants',
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Group calling is coming soon.\nFor now, start a group from the Contacts screen.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white54, fontSize: 14),
+            ),
+            SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
   }
 
   String _phaseLabel(CallPhase phase) {

@@ -61,6 +61,7 @@ class _ContactsScreenState extends State<ContactsScreen>
 
   bool _busy = false;
   String? _incomingSession;
+  String? _activeSession;
 
   // Simultaneous calls: who I'm calling, and a ring I'll answer instead.
   String? _callingUid;
@@ -350,6 +351,7 @@ class _ContactsScreenState extends State<ContactsScreen>
     }
     if (!mounted) return;
     if (_busy) {
+      if (call.sessionId == _activeSession) return;
       if (call.fromUid != _callingUid) {
         _service.sendBusy(toUid: call.fromUid, sessionId: call.sessionId);
         if (!kIsWeb) CallKitService.instance.endCall(call.sessionId);
@@ -757,6 +759,31 @@ class _ContactsScreenState extends State<ContactsScreen>
   /// Shows the call screen. Back button = minimize (the call keeps running
   /// and a bar lets the user return). Returns when the call has ended.
   Future<void> _runCall(
+    CallController controller, {
+    required String name,
+    String? photo,
+    required bool outgoing,
+    required String sessionId,
+    required bool video,
+    ValueListenable<String?>? hint,
+  }) async {
+    _activeSession = sessionId;
+    try {
+      await _runCallInner(
+        controller,
+        name: name,
+        photo: photo,
+        outgoing: outgoing,
+        sessionId: sessionId,
+        video: video,
+        hint: hint,
+      );
+    } finally {
+      if (_activeSession == sessionId) _activeSession = null;
+    }
+  }
+
+  Future<void> _runCallInner(
     CallController controller, {
     required String name,
     String? photo,

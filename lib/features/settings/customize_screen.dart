@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import '../../utils/settings/app_settings.dart';
 import 'colour_picker_sheet.dart';
+import 'effects_screen.dart';
 
 class CustomizeScreen extends StatefulWidget {
   const CustomizeScreen({super.key});
@@ -168,6 +169,21 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
         children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.auto_awesome),
+              title: const Text('Call effects'),
+              subtitle: const Text(
+                'Background blur, camera denoise, noise removal. All off by default.',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const EffectsScreen()),
+              ),
+            ),
+          ),
           _section('Accent colour'),
           ValueListenableBuilder<int>(
             valueListenable: AppSettings.accent,

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'fx_bridge.dart';
 
 /// Handles local camera/microphone capture. Video is captured at up to 720p
 /// and scaled down per quality level (see quality_profile.dart).
@@ -7,6 +8,11 @@ class MediaStreamManager {
   MediaStream? _localStream;
   bool _hasVideo = false;
   bool frontCamera = true;
+
+    void _fxAttach(MediaStreamTrack? t) {
+      if (t == null) return;
+      FxBridge.applyVideo(trackId: t.id);
+    }
 
   MediaStream? get localStream => _localStream;
 
@@ -30,7 +36,14 @@ class MediaStreamManager {
   /// If the camera can't start (no webcam, busy, permission denied), it
   /// falls back to audio-only so the call still works.
   /// Pass [videoEnabled] = false to start in voice-call-only mode.
-  Future<MediaStream> getLocalStream({bool videoEnabled = true}) async {
+Future<MediaStream> getLocalStream({bool videoEnabled = true}) async {
+    final s = await _getLocalStreamRaw(videoEnabled: videoEnabled);
+    _fxAttach(s.getVideoTracks().firstOrNull);
+    FxBridge.applyAudio();
+    return s;
+  }
+
+  Future<MediaStream> _getLocalStreamRaw({bool videoEnabled = true}) async {
     if (videoEnabled) {
       try {
         _localStream = await navigator.mediaDevices.getUserMedia({
@@ -101,7 +114,8 @@ class MediaStreamManager {
         },
       });
       final track = s.getVideoTracks().first;
-      await stream.addTrack(track);
+await stream.addTrack(track);
+      _fxAttach(track);
       return track;
     } catch (e) {
       debugPrint('MEDIA: reopenCamera failed: $e');
@@ -136,7 +150,8 @@ class MediaStreamManager {
         },
       });
       final track = s.getVideoTracks().first;
-      await _localStream!.addTrack(track);
+await _localStream!.addTrack(track);
+      _fxAttach(track);
       _hasVideo = true;
       return track;
     } catch (e) {

@@ -1,0 +1,4 @@
+-dontwarn javax.lang.model.**
+-dontwarn javax.annotation.processing.**
+-dontwarn autovalue.shaded.**
+-dontwarn com.google.auto.value.**

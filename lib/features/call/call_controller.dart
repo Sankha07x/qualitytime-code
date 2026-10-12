@@ -8,6 +8,7 @@ import '../../utils/settings/data_saver_prefs.dart';
 import '../../core/notifications/call_notification.dart';
 import '../../core/webrtc/screen_share_bridge.dart';
 import 'active_call.dart';
+import '../../core/webrtc/fx_bridge.dart';
 
 enum CallPhase { idle, ringing, connecting, active, ended }
 
@@ -30,6 +31,10 @@ class CallController {
   ValueListenable<bool> get remoteCameraOn => _peerManager.remoteCameraOn;
   ValueListenable<String> get debugText => _peerManager.debugText;
   ValueListenable<bool> get remoteScreenOn => _peerManager.remoteScreenOn;
+  ValueListenable<bool> get remoteOnHold => _peerManager.remoteOnHold;
+
+  /// True while this call is placed on hold by me.
+  final onHold = ValueNotifier<bool>(false);
 
   /// True while I am sharing my screen.
   final screenSharing = ValueNotifier<bool>(false);
@@ -174,7 +179,36 @@ class CallController {
 
   void toggleMic() {
     _micEnabled = !_micEnabled;
-    mediaManager.setMicEnabled(_micEnabled);
+    if (!onHold.value) {
+      mediaManager.setMicEnabled(_micEnabled);
+    }
+  }
+
+  Future<void> toggleHold() async {
+    await setHold(!onHold.value);
+  }
+
+  Future<void> setHold(bool hold) async {
+    if (onHold.value == hold) return;
+    onHold.value = hold;
+    if (hold) {
+      mediaManager.setMicEnabled(false);
+      try {
+        final s = _peerManager.remoteStream.value;
+        for (final t in s?.getAudioTracks() ?? []) {
+          t.enabled = false;
+        }
+      } catch (_) {}
+    } else {
+      mediaManager.setMicEnabled(_micEnabled);
+      try {
+        final s = _peerManager.remoteStream.value;
+        for (final t in s?.getAudioTracks() ?? []) {
+          t.enabled = true;
+        }
+      } catch (_) {}
+    }
+    await _peerManager.sendHold(hold);
   }
 
   Future<void> toggleCamera() async {
@@ -292,7 +326,8 @@ class CallController {
       _ongoingStarted = false;
       CallNotification.stopOngoing();
     }
-    if (ActiveCall.running == this) ActiveCall.running = null;
+if (ActiveCall.running == this) ActiveCall.running = null;
+    FxBridge.clearVideo();
     _phaseController.value = CallPhase.ended;
   }
 
