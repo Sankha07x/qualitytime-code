@@ -13,6 +13,7 @@ local.properties
 android/app/release/
 android/.gradle/
 android/captures/
+android/.kotlin/
 ios/
 web/
 windows/
