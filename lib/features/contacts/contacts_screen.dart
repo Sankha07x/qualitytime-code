@@ -77,6 +77,25 @@ class _ContactsScreenState extends State<ContactsScreen>
 
   bool _wasOnline = true;
 
+  // Unread chat messages per friend (waiting in the cloud).
+  final _unread = ValueNotifier<Map<String, int>>({});
+  RealtimeChannel? _chatCh;
+
+  Future<void> _loadUnread() async {
+    try {
+      final rows = await Supabase.instance.client
+          .from('chat_messages')
+          .select('from_uid')
+          .eq('to_uid', widget.myUid);
+      final m = <String, int>{};
+      for (final r in rows as List) {
+        final u = r['from_uid'] as String;
+        m[u] = (m[u] ?? 0) + 1;
+      }
+      if (mounted) _unread.value = m;
+    } catch (_) {}
+  }
+
   /// Back online: refresh contacts, names, photos and my profile.
   void _onNet() {
     final on = NetStatus.online.value;
@@ -230,6 +249,16 @@ class _ContactsScreenState extends State<ContactsScreen>
     NetStatus.online.addListener(_onNet);
     _loadMe();
     _presence = PresenceService(widget.myUid)..start();
+    _loadUnread();
+    _chatCh = Supabase.instance.client
+        .channel('chat_unread')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'chat_messages',
+          callback: (_) => _loadUnread(),
+        )
+        .subscribe();
     widget.contactController.contacts.addListener(_watchContacts);
     _watchContacts();
     _service = IncomingCallService(widget.myUid);
@@ -255,6 +284,8 @@ class _ContactsScreenState extends State<ContactsScreen>
     widget.contactController.contacts.removeListener(_watchContacts);
     NetStatus.online.removeListener(_onNet);
     _presence.dispose();
+    _chatCh?.unsubscribe();
+    _unread.dispose();
     _ringSub?.cancel();
     _cancelSub?.cancel();
     _gringSub?.cancel();
@@ -953,7 +984,26 @@ class _ContactsScreenState extends State<ContactsScreen>
           ),
         ],
       ),
-      title: Text(contact.displayName),
+      title: ValueListenableBuilder<Map<String, int>>(
+        valueListenable: _unread,
+        builder: (context, u, _) {
+          final n = u[contact.uid] ?? 0;
+          return Row(
+            children: [
+              Flexible(
+                child: Text(
+                  contact.displayName,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (n > 0) ...[
+                const SizedBox(width: 8),
+                Badge(label: Text('$n')),
+              ],
+            ],
+          );
+        },
+      ),
       subtitle: Text(contact.uid),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,

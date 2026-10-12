@@ -55,9 +55,6 @@ class PeerConnectionManager {
   /// True while the other phone is sharing its screen.
   final remoteScreenOn = ValueNotifier<bool>(false);
 
-  /// True when the other phone placed this call on hold.
-  final remoteOnHold = ValueNotifier<bool>(false);
-
   /// Debug: sent/received video resolution, fps, kbps, codec.
   final debugText = ValueNotifier<String>('');
 
@@ -234,11 +231,6 @@ class PeerConnectionManager {
       return;
     }
 
-    if (type == 'hold') {
-      remoteOnHold.value = data['on'] == true;
-      return;
-    }
-
     if (data['renegotiate'] == true) {
       final pc = _peerConnection;
       if (pc == null) return;
@@ -330,14 +322,6 @@ class PeerConnectionManager {
       await signaling.sendSessionDescription({'type': 'camera', 'on': on});
     } catch (e) {
       debugPrint('sendCamera failed: $e');
-    }
-  }
-
-  Future<void> sendHold(bool on) async {
-    try {
-      await signaling.sendSessionDescription({'type': 'hold', 'on': on});
-    } catch (e) {
-      debugPrint('sendHold failed: $e');
     }
   }
 

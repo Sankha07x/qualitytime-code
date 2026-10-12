@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/webrtc/quality_choice.dart';
 import '../../utils/settings/contact_quality_prefs.dart';
 import '../voice/voice_chat_screen.dart';
+import '../chat/chat_screen.dart';
 
 /// Personal page of one contact: photo, name, ID, call buttons and the
 /// call history with this person.
@@ -31,6 +32,7 @@ class ContactDetailScreen extends StatefulWidget {
 
 class _ContactDetailScreenState extends State<ContactDetailScreen> {
   int _unheard = 0;
+  int _unreadChat = 0;
   QualityChoice _qa = QualityChoice.auto;
   QualityChoice _qv = QualityChoice.auto;
 
@@ -78,6 +80,7 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
     widget.contactController.refreshProfiles();
     _loadUnheard();
     _loadQuality();
+    _loadUnreadChat();
   }
 
   /// Voice messages from this contact that I have not played yet.
@@ -95,6 +98,20 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
     } catch (_) {}
   }
 
+  /// Chat messages from this contact that I have not opened yet.
+  Future<void> _loadUnreadChat() async {
+    final me = widget.contactController.myUid;
+    if (me.isEmpty) return;
+    try {
+      final rows = await Supabase.instance.client
+          .from('chat_messages')
+          .select('id')
+          .eq('from_uid', widget.contact.uid)
+          .eq('to_uid', me);
+      if (mounted) setState(() => _unreadChat = (rows as List).length);
+    } catch (_) {}
+  }
+
   Future<void> _openVoice(ContactModel c) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -107,6 +124,19 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
       ),
     );
     _loadUnheard();
+  }
+
+  Future<void> _openChat(ContactModel c) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          contactName: c.displayName,
+          contactUid: c.uid,
+          myUid: widget.contactController.myUid,
+          photoUrl: widget.contactController.photos.value[c.uid],
+        ),
+      ),
+    );
   }
 
   String _two(int n) => n.toString().padLeft(2, '0');
@@ -261,6 +291,22 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  onPressed: () async {
+                    await _openChat(c);
+                    _loadUnreadChat();
+                  },
+                  icon: Badge(
+                    isLabelVisible: _unreadChat > 0,
+                    label: Text('$_unreadChat'),
+                    child: const Icon(Icons.chat_bubble_outline),
+                  ),
+                  label: const Text('Chat'),
+                ),
               ),
               const SizedBox(height: 12),
               SizedBox(
