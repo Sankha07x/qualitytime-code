@@ -1,4 +1,4 @@
-enum QualityLevel { low, medium, high }
+enum QualityLevel { low, medium, high, extreme }
 
 /// The lower of two levels (lower setting always wins).
 QualityLevel lowerOf(QualityLevel a, QualityLevel b) =>
@@ -14,6 +14,8 @@ class QualityProfile {
         return 32000;
       case QualityLevel.high:
         return 64000;
+      case QualityLevel.extreme:
+        return 128000;
     }
   }
 
@@ -25,6 +27,8 @@ class QualityProfile {
         return 500000;
       case QualityLevel.high:
         return 1200000;
+      case QualityLevel.extreme:
+        return 8000000;
     }
   }
 
@@ -36,6 +40,8 @@ class QualityProfile {
         return 24;
       case QualityLevel.high:
         return 30;
+      case QualityLevel.extreme:
+        return 60;
     }
   }
 
@@ -47,6 +53,8 @@ class QualityProfile {
       case QualityLevel.medium:
         return 1.5;
       case QualityLevel.high:
+        return 1.0;
+      case QualityLevel.extreme:
         return 1.0;
     }
   }

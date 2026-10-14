@@ -158,8 +158,25 @@ class CallController {
     final video = videoChoice == QualityChoice.auto
         ? _peerManager.autoVideo.value
         : resolveChoice(videoChoice, weak: weak);
+    _syncCapture();
     _peerManager.setSendQuality(audio: audio, video: video);
     _peerManager.requestReceiveQuality(audio: audio, video: video);
+  }
+
+  bool _captureBusy = false;
+
+  /// Extreme = camera at 1080p 60fps. Any other choice = 720p 30fps.
+  Future<void> _syncCapture() async {
+    if (_captureBusy || screenSharing.value) return;
+    final want = videoChoice == QualityChoice.extreme;
+    if (want == mediaManager.extremeCapture) return;
+    _captureBusy = true;
+    try {
+      final t = await mediaManager.recaptureCamera(want);
+      if (t != null) await _peerManager.replaceVideo(t);
+    } finally {
+      _captureBusy = false;
+    }
   }
 
   void setAudioChoice(QualityChoice c) {
@@ -267,6 +284,7 @@ class CallController {
     await mediaManager.stopScreen();
     await ScreenShareBridge.end();
     await _peerManager.stopShare(back);
+    _syncCapture();
   }
 
   Future<void> switchCamera() => mediaManager.switchCamera();

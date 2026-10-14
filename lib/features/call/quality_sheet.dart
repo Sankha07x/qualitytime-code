@@ -44,7 +44,37 @@ class _QualitySheetState extends State<QualitySheet> {
         return 'Medium';
       case QualityChoice.high:
         return 'High';
+      case QualityChoice.extreme:
+        return 'Extreme';
     }
+  }
+
+  Widget _chip(QualityChoice c, bool selected, VoidCallback onTap) {
+    final extreme = c == QualityChoice.extreme;
+    final Color bg = selected
+        ? (extreme ? Colors.deepOrange : Colors.blueAccent)
+        : Colors.white.withOpacity(0.18);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? Colors.transparent : Colors.white38,
+          ),
+        ),
+        child: Text(
+          _label(c),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _choices(
@@ -59,19 +89,10 @@ class _QualitySheetState extends State<QualitySheet> {
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
+          runSpacing: 8,
           children: [
             for (final c in QualityChoice.values)
-              ChoiceChip(
-                label: Text(_label(c)),
-                labelStyle: TextStyle(
-                  color: Colors.white,
-                ),
-                backgroundColor: Colors.white24,
-                selectedColor: Colors.blueAccent,
-                showCheckmark: false,
-                selected: c == selected,
-                onSelected: (_) => onSelect(c),
-              ),
+              _chip(c, c == selected, () => onSelect(c)),
           ],
         ),
       ],

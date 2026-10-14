@@ -21,6 +21,7 @@ class PeerConnectionManager {
   bool _gotAnswer = false;
   bool _offering = false;
   RTCRtpSender? _videoSender;
+  bool _sharing = false;
   Map<String, dynamic>? _pendingOffer;
   Timer? _readyTimer;
     Timer? _restartTimer;
@@ -28,8 +29,8 @@ class PeerConnectionManager {
   // My own cap on what I send, and what the other side asked me to send.
   QualityLevel _sendAudio = QualityLevel.medium;
   QualityLevel _sendVideo = QualityLevel.medium;
-  QualityLevel _peerWantsAudio = QualityLevel.high;
-  QualityLevel _peerWantsVideo = QualityLevel.high;
+  QualityLevel _peerWantsAudio = QualityLevel.extreme;
+  QualityLevel _peerWantsVideo = QualityLevel.extreme;
 
   Timer? _statsTimer;
   int _weakStrikes = 0;
@@ -328,6 +329,7 @@ class PeerConnectionManager {
   /// Sends [screen] instead of the camera. In a voice-only call it adds a
   /// video line and renegotiates (like the voice -> video upgrade).
   Future<bool> startShare(MediaStreamTrack screen, MediaStream stream) async {
+    _sharing = true;
     final pc = _peerConnection;
     if (pc == null) return false;
     try {
@@ -346,6 +348,7 @@ class PeerConnectionManager {
       await signaling.sendSessionDescription({'type': 'screen', 'on': true});
       return true;
     } catch (e) {
+      _sharing = false;
       debugPrint('startShare failed: $e');
       return false;
     }
@@ -353,6 +356,7 @@ class PeerConnectionManager {
 
   /// Back to the camera track, or to nothing when [restore] is null.
   Future<void> stopShare(MediaStreamTrack? restore) async {
+    _sharing = false;
     try {
       await _videoSender?.replaceTrack(restore);
       if (restore != null) await _applySendQuality();
@@ -456,10 +460,10 @@ class PeerConnectionManager {
   }
 
   int _rank(QualityLevel l) =>
-      const {'low': 0, 'medium': 1, 'high': 2}[l.name] ?? 1;
+      const {'low': 0, 'medium': 1, 'high': 2, 'extreme': 3}[l.name] ?? 1;
 
   QualityLevel _level(int r) =>
-      QualityLevel.values.byName(const ['low', 'medium', 'high'][r]);
+      QualityLevel.values.byName(const ['low', 'medium', 'high', 'extreme'][r]);
 
   /// Auto video: drop fast on trouble, climb slowly when all is good.
   void _updateAuto(bool bad) {
@@ -534,8 +538,13 @@ class PeerConnectionManager {
             enc.active = true;
             enc.maxBitrate = VideoTuning.maxBitrate(video);
             enc.minBitrate = VideoTuning.minBitrate(video);
-            enc.maxFramerate = VideoTuning.fps(video);
-            enc.scaleResolutionDownBy = VideoTuning.scale(video);
+            final fps = VideoTuning.fps(video);
+            enc.maxFramerate = _sharing && fps > 30 ? 30 : fps;
+            enc.scaleResolutionDownBy =
+                _sharing || video == QualityLevel.extreme
+                    ? VideoTuning.scale(video)
+                    : VideoTuning.scale(video) *
+                        (mediaManager.extremeCapture ? 1.5 : 1.0);
           }
         }
         await sender.setParameters(params);

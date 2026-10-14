@@ -56,6 +56,9 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
   final Room _room = Room(
     roomOptions: RoomOptions(
       adaptiveStream: true,
+      defaultScreenShareCaptureOptions: ScreenShareCaptureOptions(
+        params: VideoParametersPresets.screenShareH1080FPS30,
+      ),
       dynacast: true,
       defaultCameraCaptureOptions:
           CameraCaptureOptions(params: VideoParametersPresets.h360_169),

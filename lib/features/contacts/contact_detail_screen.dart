@@ -212,6 +212,23 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          final c = widget.contactController.contacts.value
+                  .where((x) => x.uid == widget.contact.uid)
+                  .firstOrNull ??
+              widget.contact;
+          await _openChat(c);
+          _loadUnreadChat();
+          _loadUnheard();
+        },
+        icon: Badge(
+          isLabelVisible: _unreadChat + _unheard > 0,
+          label: Text('${_unreadChat + _unheard}'),
+          child: const Icon(Icons.chat_bubble_outline),
+        ),
+        label: const Text('Chat'),
+      ),
       appBar: AppBar(
         title: const Text('Contact'),
         actions: [
@@ -235,7 +252,7 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
                   .firstOrNull ??
               widget.contact;
           return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
             children: [
               Center(
                 child: ValueListenableBuilder<Map<String, String>>(
@@ -293,34 +310,6 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.tonalIcon(
-                  onPressed: () async {
-                    await _openChat(c);
-                    _loadUnreadChat();
-                  },
-                  icon: Badge(
-                    isLabelVisible: _unreadChat > 0,
-                    label: Text('$_unreadChat'),
-                    child: const Icon(Icons.chat_bubble_outline),
-                  ),
-                  label: const Text('Chat'),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => _openVoice(c),
-                  icon: Badge(
-                    isLabelVisible: _unheard > 0,
-                    label: Text('$_unheard'),
-                    child: const Icon(Icons.mic),
-                  ),
-                  label: const Text('Voice message'),
-                ),
-              ),
               const SizedBox(height: 20),
               Text(
                 'Call quality with ${c.displayName}',

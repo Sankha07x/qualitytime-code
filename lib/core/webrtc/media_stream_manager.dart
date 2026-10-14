@@ -9,6 +9,18 @@ class MediaStreamManager {
   bool _hasVideo = false;
   bool frontCamera = true;
 
+  /// True while the camera is captured at 1080p 60fps (Extreme quality).
+  bool extremeCapture = false;
+
+  Map<String, dynamic> _camVideo(String facing) => {
+        'facingMode': facing,
+        'width': {'ideal': extremeCapture ? 1080 : 720},
+        'height': {'ideal': extremeCapture ? 1920 : 1280},
+        'frameRate': extremeCapture
+            ? {'ideal': 60, 'max': 60}
+            : {'ideal': 30, 'max': 30},
+      };
+
     void _fxAttach(MediaStreamTrack? t) {
       if (t == null) return;
       FxBridge.applyVideo(trackId: t.id);
@@ -48,12 +60,7 @@ Future<MediaStream> getLocalStream({bool videoEnabled = true}) async {
       try {
         _localStream = await navigator.mediaDevices.getUserMedia({
           'audio': _audioConstraints,
-          'video': {
-            'facingMode': 'user',
-            'width': {'ideal': 720},
-            'height': {'ideal': 1280},
-            'frameRate': {'ideal': 30, 'max': 30},
-          },
+          'video': _camVideo('user'),
         });
         _hasVideo = _localStream!.getVideoTracks().isNotEmpty;
         return _localStream!;
@@ -106,12 +113,7 @@ Future<MediaStream> getLocalStream({bool videoEnabled = true}) async {
     try {
       final s = await navigator.mediaDevices.getUserMedia({
         'audio': false,
-        'video': {
-          'facingMode': frontCamera ? 'user' : 'environment',
-          'width': {'ideal': 720},
-          'height': {'ideal': 1280},
-          'frameRate': {'ideal': 30, 'max': 30},
-        },
+        'video': _camVideo(frontCamera ? 'user' : 'environment'),
       });
       final track = s.getVideoTracks().first;
 await stream.addTrack(track);
@@ -119,6 +121,35 @@ await stream.addTrack(track);
       return track;
     } catch (e) {
       debugPrint('MEDIA: reopenCamera failed: $e');
+      return null;
+    }
+  }
+
+  /// Extreme on/off: reopens the camera at 1080p60 (or back to 720p30).
+  /// If the camera is off, only remembers the setting for the next start.
+  Future<MediaStreamTrack?> recaptureCamera(bool extreme) async {
+    final stream = _localStream;
+    final hadTrack = stream?.getVideoTracks().isNotEmpty ?? false;
+    if (stream == null || !hadTrack) {
+      extremeCapture = extreme;
+      return null;
+    }
+    try {
+      for (final t in List.of(stream.getVideoTracks())) {
+        await stream.removeTrack(t);
+        await t.stop();
+      }
+      extremeCapture = extreme;
+      final s = await navigator.mediaDevices.getUserMedia({
+        'audio': false,
+        'video': _camVideo(frontCamera ? 'user' : 'environment'),
+      });
+      final track = s.getVideoTracks().first;
+      await stream.addTrack(track);
+      _fxAttach(track);
+      return track;
+    } catch (e) {
+      debugPrint('MEDIA: recaptureCamera failed: $e');
       return null;
     }
   }
@@ -142,12 +173,7 @@ await stream.addTrack(track);
     try {
       final s = await navigator.mediaDevices.getUserMedia({
         'audio': false,
-        'video': {
-          'facingMode': 'user',
-          'width': {'ideal': 720},
-          'height': {'ideal': 1280},
-          'frameRate': {'ideal': 30, 'max': 30},
-        },
+        'video': _camVideo('user'),
       });
       final track = s.getVideoTracks().first;
 await _localStream!.addTrack(track);
@@ -170,7 +196,7 @@ await _localStream!.addTrack(track);
     try {
       final s = await navigator.mediaDevices.getDisplayMedia({
         'video': {
-          'frameRate': {'ideal': 15, 'max': 24},
+          'frameRate': {'ideal': 30, 'max': 30},
         },
         'audio': false,
       });

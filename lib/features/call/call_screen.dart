@@ -545,7 +545,9 @@ class _CallScreenState extends State<CallScreen> {
                 builder: (context, weak, _) {
                   final c = widget.controller;
                   bool notLow(QualityChoice q) =>
-                      q == QualityChoice.medium || q == QualityChoice.high;
+                      q == QualityChoice.medium ||
+                      q == QualityChoice.high ||
+                      q == QualityChoice.extreme;
                   final show =
                       weak && (notLow(c.audioChoice) || notLow(c.videoChoice));
                   return AnimatedSwitcher(

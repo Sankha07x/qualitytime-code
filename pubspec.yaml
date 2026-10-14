@@ -1,7 +1,7 @@
 name: QualityTime
 description: Low-bandwidth, high-quality P2P voice/video calling app.
 publish_to: 'none'
-version: 0.7.0+22
+version: 0.7.4+23
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -32,6 +32,9 @@ dependencies:
   cached_network_image: ^3.4.1
   file_selector: ^1.1.0
   path_provider: ^2.1.6
+  video_player: ^2.11.1
+  pdfx: ^2.11.0
+  open_filex: ^4.7.0
 
 dev_dependencies:
   flutter_test:

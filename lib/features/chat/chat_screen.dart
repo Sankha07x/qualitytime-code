@@ -1,10 +1,25 @@
-import 'package:flutter/material.dart';
-import '../../utils/user_avatar.dart';
 import 'dart:io';
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/material.dart';
+import '../../utils/settings/app_settings.dart';
+import '../../utils/user_avatar.dart';
+import '../voice/voice_service.dart';
+import 'bubble_shell.dart';
+import 'chat_input_bar.dart';
 import 'chat_service.dart';
+import 'file_opener.dart';
+import 'photo_bubble.dart';
+import 'photo_bubble.dart';
+import 'voice_bubble.dart';
 
-/// Chat window with one friend.
+class _Item {
+  final DateTime at;
+  final ChatMessage? chat;
+  final VoiceMessage? voice;
+  _Item(this.at, {this.chat, this.voice});
+}
+
+/// One chat window: text, files and voice messages in a single timeline.
 class ChatScreen extends StatefulWidget {
   final String contactName;
   final String contactUid;
@@ -24,83 +39,152 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  late final ChatService _svc;
-  final _ctrl = TextEditingController();
+  late final ChatService _chat =
+      ChatService(myUid: widget.myUid, peerUid: widget.contactUid);
+  late final VoiceService _voice =
+      VoiceService(myUid: widget.myUid, peerUid: widget.contactUid);
+  final _player = VoicePlayerController();
 
   @override
   void initState() {
     super.initState();
-    _svc = ChatService(myUid: widget.myUid, peerUid: widget.contactUid);
-    _svc.start();
+    _chat.start();
+    _voice.start();
   }
 
   @override
   void dispose() {
-    _svc.dispose();
-    _ctrl.dispose();
+    _player.dispose();
+    _chat.dispose();
+    // small delay so a recording in progress can be cancelled first
+    Future.delayed(const Duration(milliseconds: 500), _voice.dispose);
     super.dispose();
   }
 
-  String _two(int n) => n.toString().padLeft(2, '0');
-
-  Future<void> _send() async {
-    final text = _ctrl.text;
-    if (text.trim().isEmpty) return;
-    _ctrl.clear();
-    final err = await _svc.sendText(text);
-    if (err != null && mounted) {
-      _ctrl.text = text;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
-    }
+  void _snack(String t) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
   }
 
   Future<void> _attach() async {
     final x = await openFile();
     if (x == null) return;
-    final err = await _svc.sendFile(File(x.path), x.name);
-    if (err != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+    final err = await _chat.sendFile(File(x.path), x.name);
+    if (err != null) _snack(err);
+  }
+
+  Future<bool> _ask(String title, String body) async =>
+      (await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(title),
+          content: Text(body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      )) ==
+      true;
+
+  Future<void> _delChat(ChatMessage m) async {
+    if (await _ask('Delete message?', 'It is removed from this phone only.')) {
+      await _chat.deleteLocal(m);
     }
   }
 
-  Widget _bubble(ChatMessage m) {
+  Future<void> _delVoice(VoiceMessage m) async {
+    if (!await _ask('Delete voice message?', 'It is removed for both of you.')) {
+      return;
+    }
+    if (_player.playingId == m.id) await _player.stop();
+    await _voice.delete(m);
+  }
+
+  List<_Item> _items() => [
+        for (final m in _chat.messages.value) _Item(m.createdAt, chat: m),
+        for (final v in _voice.messages.value) _Item(v.createdAt, voice: v),
+      ]..sort((a, b) => a.at.compareTo(b.at));
+
+  Widget _bubble(_Item it) {
+    final v = it.voice;
+    if (v != null) {
+      return VoiceBubble(
+        m: v,
+        mine: v.fromUid == widget.myUid,
+        player: _player,
+        svc: _voice,
+        onError: _snack,
+        onLongPress: () => _delVoice(v),
+      );
+    }
+    final m = it.chat!;
     final mine = m.fromUid == widget.myUid;
-    final cs = Theme.of(context).colorScheme;
-    final time = '${_two(m.createdAt.hour)}:${_two(m.createdAt.minute)}';
-    final content = m.kind == 'file'
+    final fg = bubbleFg(context, mine);
+    final content = m.kind == 'file' && isImageName(m.fileName)
+        ? PhotoBubble(m: m, svc: _chat)
+        : m.kind == 'file' && isImageName(m.fileName)
+        ? PhotoBubble(m: m, svc: _chat)
+        : m.kind == 'file'
         ? Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.insert_drive_file_outlined, size: 20),
-              const SizedBox(width: 6),
+              Icon(Icons.insert_drive_file_outlined, size: 22, color: fg),
+              const SizedBox(width: 8),
               Flexible(
                 child: Text(
                   '${m.fileName ?? 'File'}\n${((m.fileSize ?? 0) / 1024).round()} KB',
+                  style: TextStyle(color: fg),
                 ),
               ),
             ],
           )
-        : Text(m.body ?? '');
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 10),
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.78,
-        ),
-        decoration: BoxDecoration(
-          color: mine ? cs.primaryContainer : cs.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Align(alignment: Alignment.centerLeft, child: content),
-            const SizedBox(height: 2),
-            Text(time, style: Theme.of(context).textTheme.labelSmall),
-          ],
+        : Text(m.body ?? '', style: TextStyle(color: fg, fontSize: 15));
+    return BubbleShell(
+      mine: mine,
+      onLongPress: () => _delChat(m),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          GestureDetector(
+            onTap: m.kind == 'file' && !isImageName(m.fileName)
+                ? () => openChatFile(context, _chat, m)
+                : null,
+            child: Align(alignment: Alignment.centerLeft, child: content),
+          ),
+          const SizedBox(height: 2),
+          Text(hm(m.createdAt),
+              style: TextStyle(color: fg.withOpacity(0.7), fontSize: 11)),
+        ],
+      ),
+    );
+  }
+
+  Widget _background() {
+    final wp = AppSettings.wallpaper.value;
+    final s = Theme.of(context).colorScheme;
+    if (wp != null) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.file(File(wp), fit: BoxFit.cover),
+          ColoredBox(color: s.surface.withOpacity(0.55)),
+        ],
+      );
+    }
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [s.primaryContainer.withOpacity(0.6), s.surface],
         ),
       ),
     );
@@ -109,14 +193,17 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         titleSpacing: 0,
         title: Row(
           children: [
             UserAvatar(
               name: widget.contactName,
               photoUrl: widget.photoUrl,
-              radius: 18,
+              radius: 17,
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -125,58 +212,43 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
       ),
-      body: Column(
+      body: Stack(
+        fit: StackFit.expand,
         children: [
-          Expanded(
-            child: ValueListenableBuilder<List<ChatMessage>>(
-              valueListenable: _svc.messages,
-              builder: (context, list, _) {
-                if (list.isEmpty) {
-                  return const Center(child: Text('No messages yet. Say hi!'));
-                }
-                final rev = list.reversed.toList();
-                return ListView.builder(
-                  reverse: true,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: rev.length,
-                  itemBuilder: (_, i) => _bubble(rev[i]),
-                );
-              },
-            ),
-          ),
+          _background(),
           SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 4, 6, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _ctrl,
-                      minLines: 1,
-                      maxLines: 5,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: InputDecoration(
-                        hintText: 'Message',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
-                      ),
-                    ),
+            bottom: false,
+            child: Column(
+              children: [
+                Expanded(
+                  child: AnimatedBuilder(
+                    animation:
+                        Listenable.merge([_chat.messages, _voice.messages]),
+                    builder: (context, _) {
+                      final items = _items();
+                      if (items.isEmpty) {
+                        return const Center(
+                          child: Text('No messages yet. Say hi!'),
+                        );
+                      }
+                      return ListView.builder(
+                        reverse: true,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: items.length,
+                        itemBuilder: (_, i) =>
+                            _bubble(items[items.length - 1 - i]),
+                      );
+                    },
                   ),
-                  IconButton(                  IconButton(
-                    icon: const Icon(Icons.attach_file),
-                    onPressed: _attach,
-                  ),
-                  IconButton(                    icon: const Icon(Icons.send),
-                    onPressed: _send,
-                  ),
-                ],
-              ),
+                ),
+                ChatInputBar(
+                  voice: _voice,
+                  onSendText: _chat.sendText,
+                  onAttach: _attach,
+                  onRecordStart: _player.stop,
+                  onMessage: _snack,
+                ),
+              ],
             ),
           ),
         ],
