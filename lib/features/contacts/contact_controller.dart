@@ -251,6 +251,9 @@ class ContactController {
   // ---- Friends ----
 
   String myUid = '';
+
+  /// The running contact controller (the call screen uses it to add people).
+  static ContactController? current;
   final friends = ValueNotifier<Set<String>>({});
   final incoming = ValueNotifier<List<Map<String, String>>>([]);
   final outgoing = ValueNotifier<Set<String>>({});

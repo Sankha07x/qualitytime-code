@@ -163,6 +163,13 @@ class CallController {
     _peerManager.requestReceiveQuality(audio: audio, video: video);
   }
 
+  /// Set when the other phone turned this call into a group call.
+  ValueListenable<Map<String, dynamic>?> get groupInvite =>
+      _peerManager.groupInvite;
+
+  Future<void> sendGroupInvite(Map<String, dynamic> info) =>
+      _peerManager.sendGroupInvite(info);
+
   bool _captureBusy = false;
 
   /// Extreme = camera at 1080p 60fps. Any other choice = 720p 30fps.
@@ -189,9 +196,26 @@ class CallController {
     _applyQuality();
   }
 
+  /// True while I have this call on hold.
+  final onHold = ValueNotifier<bool>(false);
+  ValueListenable<bool> get remoteOnHold => _peerManager.remoteOnHold;
+  ValueListenable<bool> get remoteMicOn => _peerManager.remoteMicOn;
+
+  /// Hold: my mic is cut, I hear nothing, the other phone shows "on hold".
+  Future<void> toggleHold() async {
+    final hold = !onHold.value;
+    onHold.value = hold;
+    mediaManager.setMicEnabled(hold ? false : _micEnabled);
+    for (final t in _peerManager.remoteStream.value?.getAudioTracks() ?? []) {
+      t.enabled = !hold;
+    }
+    _peerManager.sendHold(hold);
+  }
+
   void toggleMic() {
     _micEnabled = !_micEnabled;
-    mediaManager.setMicEnabled(_micEnabled);
+    if (!onHold.value) mediaManager.setMicEnabled(_micEnabled);
+    _peerManager.sendMic(_micEnabled);
   }
 
   Future<void> toggleCamera() async {

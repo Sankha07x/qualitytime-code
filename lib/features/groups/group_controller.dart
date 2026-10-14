@@ -128,6 +128,32 @@ class GroupController {
     }
   }
 
+  /// Makes a group for a call that started as a 1-to-1 call.
+  /// Returns the new group id, or null if it failed.
+  Future<String?> createForCall(String name, List<String> uids) async {
+    try {
+      final r = await _c
+          .from('groups')
+          .insert({
+            'name': name.trim(),
+            'emoji': '📞',
+            'color': 0xFF0D9488,
+            'mode': 'friends',
+          })
+          .select('id')
+          .single();
+      final id = r['id'] as String;
+      await _c.from('group_members').insert([
+        for (final u in uids) {'group_id': id, 'member_uid': u},
+      ]);
+      await refresh();
+      return id;
+    } catch (e) {
+      debugPrint('Group for call failed: $e');
+      return null;
+    }
+  }
+
   Future<String?> addMembers(String gid, List<String> uids) async {
     if (uids.isEmpty) return null;
     try {

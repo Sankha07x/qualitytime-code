@@ -56,6 +56,15 @@ class PeerConnectionManager {
   /// True while the other phone is sharing its screen.
   final remoteScreenOn = ValueNotifier<bool>(false);
 
+  /// Set when the other phone turned this call into a group call.
+  final groupInvite = ValueNotifier<Map<String, dynamic>?>(null);
+
+  /// True when the other phone put this call on hold.
+  final remoteOnHold = ValueNotifier<bool>(false);
+
+  /// False when the other phone muted its microphone.
+  final remoteMicOn = ValueNotifier<bool>(true);
+
   /// Debug: sent/received video resolution, fps, kbps, codec.
   final debugText = ValueNotifier<String>('');
 
@@ -225,6 +234,21 @@ class PeerConnectionManager {
       return;
     }
 
+    if (type == 'hold') {
+      remoteOnHold.value = data['on'] == true;
+      return;
+    }
+
+    if (type == 'mic') {
+      remoteMicOn.value = data['on'] == true;
+      return;
+    }
+
+    if (type == 'group') {
+      groupInvite.value = Map<String, dynamic>.from(data);
+      return;
+    }
+
     if (type == 'quality') {
       _peerWantsAudio = QualityLevel.values.byName(data['audio'] as String);
       _peerWantsVideo = QualityLevel.values.byName(data['video'] as String);
@@ -318,6 +342,30 @@ class PeerConnectionManager {
     }
   }
     
+  Future<void> sendHold(bool on) async {
+    try {
+      await signaling.sendSessionDescription({'type': 'hold', 'on': on});
+    } catch (e) {
+      debugPrint('sendHold failed: $e');
+    }
+  }
+
+  Future<void> sendMic(bool on) async {
+    try {
+      await signaling.sendSessionDescription({'type': 'mic', 'on': on});
+    } catch (e) {
+      debugPrint('sendMic failed: $e');
+    }
+  }
+
+  Future<void> sendGroupInvite(Map<String, dynamic> info) async {
+    try {
+      await signaling.sendSessionDescription({'type': 'group', ...info});
+    } catch (e) {
+      debugPrint('sendGroupInvite failed: $e');
+    }
+  }
+
   Future<void> sendCamera(bool on) async {
     try {
       await signaling.sendSessionDescription({'type': 'camera', 'on': on});
@@ -596,6 +644,9 @@ class PeerConnectionManager {
     remoteVideoAdded.dispose();
     remoteCameraOn.dispose();
     remoteScreenOn.dispose();
+    groupInvite.dispose();
+    remoteOnHold.dispose();
+    remoteMicOn.dispose();
     debugText.dispose();
     autoVideo.dispose();
   }

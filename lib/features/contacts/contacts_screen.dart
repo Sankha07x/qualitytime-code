@@ -242,6 +242,7 @@ class _ContactsScreenState extends State<ContactsScreen>
       }
     };
     widget.contactController.myUid = widget.myUid;
+    ContactController.current = widget.contactController;
     widget.contactController
         .syncWithCloud()
         .then((_) => widget.contactController.refreshProfiles())

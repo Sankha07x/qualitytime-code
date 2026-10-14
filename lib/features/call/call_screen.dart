@@ -14,6 +14,11 @@ import '../../utils/settings/app_settings.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import '../../utils/lock_screen.dart';
 import '../../utils/glass.dart';
+import '../contacts/contact_controller.dart';
+import '../groups/group_controller.dart';
+import '../groups/groups_screen.dart';
+import '../groups/group_call_screen.dart';
+import '../../core/signaling/group_ring_service.dart';
 
 class CallScreen extends StatefulWidget {
   final CallController controller;
@@ -63,6 +68,8 @@ class _CallScreenState extends State<CallScreen> {
       }
     });
     widget.controller.phase.addListener(_syncPip);
+    widget.controller.groupInvite.addListener(_onGroupInvite);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onGroupInvite());
     widget.controller.videoActive.addListener(_syncPip);
     _syncPip();
     _init();
@@ -257,6 +264,108 @@ class _CallScreenState extends State<CallScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
+  void _snackMsg(String t) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
+  }
+
+  /// The other person's UID, taken from the shared session id (me_them).
+  String get _peerUid {
+    final me = ContactController.current?.myUid ?? '';
+    final s = widget.sessionId;
+    if (me.isEmpty) return '';
+    if (s.startsWith('${me}_')) return s.substring(me.length + 1);
+    if (s.endsWith('_$me')) return s.substring(0, s.length - me.length - 1);
+    return '';
+  }
+
+  /// Add participant: makes a group, rings the new people, tells the other
+  /// phone, then both phones move from this call to the group call.
+  Future<void> _addParticipant() async {
+    final cc = ContactController.current;
+    final peer = _peerUid;
+    if (cc == null || peer.isEmpty) {
+      _snackMsg('Cannot add people to this call.');
+      return;
+    }
+    final picked = await pickFriends(context, cc, exclude: {peer});
+    if (picked == null || picked.isEmpty || !mounted) return;
+    final t = DateTime.now();
+    final hh = t.hour.toString().padLeft(2, '0');
+    final mm = t.minute.toString().padLeft(2, '0');
+    final name = 'Group call $hh:$mm';
+    final gc = GroupController(cc.myUid);
+    final gid = await gc.createForCall(name, [peer, ...picked]);
+    gc.dispose();
+    if (gid == null) {
+      _snackMsg('Could not start the group call.');
+      return;
+    }
+    final video = widget.controller.videoActive.value;
+    GroupRinger.ring(
+      groupId: gid,
+      groupName: name,
+      emoji: '📞',
+      color: 0xFF0D9488,
+      mode: 'friends',
+      members: [peer, ...picked],
+      video: video,
+      fromUid: cc.myUid,
+      only: picked,
+    );
+    await widget.controller.sendGroupInvite({
+      'gid': gid,
+      'name': name,
+      'emoji': '📞',
+      'color': 0xFF0D9488,
+      'mode': 'friends',
+      'video': video,
+    });
+    await _goGroup(gid, name, '📞', 0xFF0D9488, 'friends', video);
+  }
+
+  void _onGroupInvite() {
+    final g = widget.controller.groupInvite.value;
+    if (g == null || !mounted) return;
+    _goGroup(
+      (g['gid'] ?? '').toString(),
+      (g['name'] ?? 'Group call').toString(),
+      (g['emoji'] ?? '📞').toString(),
+      (g['color'] as num?)?.toInt() ?? 0xFF0D9488,
+      (g['mode'] ?? 'friends').toString(),
+      g['video'] == true,
+    );
+  }
+
+  /// Ends this 1-to-1 call quietly and opens the group call in its place.
+  Future<void> _goGroup(String gid, String name, String emoji, int color,
+      String mode, bool video) async {
+    final cc = ContactController.current;
+    if (_closing || cc == null || gid.isEmpty) return;
+    _closing = true;
+    await widget.controller.endCall(notifyPeer: false);
+    if (_pip) _pipChannel.invokeMethod('leave').catchError((_) {});
+    if (!mounted) return;
+    final gc = GroupController(cc.myUid);
+    await gc.refresh();
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => GroupCallScreen(
+          groupId: gid,
+          groupName: name,
+          video: video,
+          emoji: emoji,
+          color: color,
+          mode: mode,
+          groupController: gc,
+          contactController: cc,
+          myUid: cc.myUid,
+        ),
+      ),
+    );
+  }
+
   Future<void> _endCall() async {
     _closing = true;
     await widget.controller.endCall();
@@ -270,6 +379,7 @@ class _CallScreenState extends State<CallScreen> {
     widget.controller.phase.removeListener(_onPhaseChanged);
     widget.controller.videoActive.removeListener(_onVideoActive);
     widget.controller.phase.removeListener(_syncPip);
+    widget.controller.groupInvite.removeListener(_onGroupInvite);
     widget.controller.videoActive.removeListener(_syncPip);
     _pipChannel.setMethodCallHandler(null);
     _pipChannel.invokeMethod('setAuto', false).catchError((_) {});
@@ -387,6 +497,26 @@ class _CallScreenState extends State<CallScreen> {
               ),
             ),
 
+            // Add participant button (top right)
+            Positioned(
+              top: 4,
+              right: 4,
+              child: ValueListenableBuilder<CallPhase>(
+                valueListenable: widget.controller.phase,
+                builder: (context, phase, _) => phase == CallPhase.active
+                    ? IconButton(
+                        tooltip: 'Add participant',
+                        onPressed: _addParticipant,
+                        icon: const Icon(
+                          Icons.person_add_alt_1,
+                          color: Colors.white,
+                          size: 26,
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ),
+
             // Minimize button
             Positioned(
               top: 4,
@@ -427,6 +557,93 @@ class _CallScreenState extends State<CallScreen> {
                     ),
                   ),
                 ],
+              ),
+            ),
+
+            // On hold / muted notices
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: Listenable.merge([
+                    widget.controller.onHold,
+                    widget.controller.remoteOnHold,
+                    widget.controller.remoteMicOn,
+                  ]),
+                  builder: (context, _) {
+                    final c = widget.controller;
+                    final mine = c.onHold.value;
+                    final theirs = c.remoteOnHold.value;
+                    final muted = !c.remoteMicOn.value;
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (mine || theirs)
+                          Container(
+                            color: Colors.black54,
+                            child: Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.pause_circle_filled,
+                                    color: Colors.white,
+                                    size: 72,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    mine
+                                        ? 'Call on hold'
+                                        : '${widget.contactName} put you on hold',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        if (muted)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 310,
+                            child: Center(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.black87,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.mic_off,
+                                      color: Colors.redAccent,
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '${widget.contactName} is muted',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
               ),
             ),
 
@@ -539,7 +756,7 @@ class _CallScreenState extends State<CallScreen> {
             Positioned(
               left: 16,
               right: 16,
-              bottom: 190,
+              bottom: 250,
               child: ValueListenableBuilder<bool>(
                 valueListenable: widget.controller.weakNetwork,
                 builder: (context, weak, _) {
@@ -679,6 +896,43 @@ class _CallScreenState extends State<CallScreen> {
                             },
                           ),
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  GestureDetector(
+                    onTap: () async {
+                      await widget.controller.toggleHold();
+                      if (mounted) setState(() {});
+                    },
+                    child: Glass(
+                      blur: 14,
+                      tint: Colors.black,
+                      opacity: 0.30,
+                      borderRadius: BorderRadius.circular(24),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 10,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            widget.controller.onHold.value
+                                ? Icons.play_arrow
+                                : Icons.pause,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            widget.controller.onHold.value ? 'Resume' : 'Hold',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 14),

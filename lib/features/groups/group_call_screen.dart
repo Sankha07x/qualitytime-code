@@ -14,6 +14,7 @@ import '../../core/signaling/group_ring_service.dart';
 import '../contacts/contact_controller.dart';
 import 'group_controller.dart';
 import 'groups_screen.dart';
+import '../../core/webrtc/screen_share_bridge.dart';
 
 const _reactions = ['👍', '❤️', '😂', '🎉', '🔥', '👏'];
 
@@ -100,6 +101,9 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
     widget.groupController.groups.addListener(_onChange);
     _events
       ..on<DataReceivedEvent>(_onData)
+      ..on<ParticipantConnectedEvent>((_) {
+        if (_held) _send({'t': 'hold', 'v': true});
+      })
       ..on<RoomDisconnectedEvent>((_) {
         if (mounted && !_leaving) _leave();
       });
@@ -108,6 +112,7 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
   }
 
   void _onChange() {
+    if (_held) _muteIncoming(true);
     if (mounted) setState(() {});
   }
 
@@ -156,6 +161,13 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
       final from = e.participant?.identity ?? '';
       if (m['t'] == 'react') {
         _addFloat(m['e'].toString());
+      } else if (m['t'] == 'hold') {
+        if (m['v'] == true) {
+          _hold.add(from);
+        } else {
+          _hold.remove(from);
+        }
+        if (mounted) setState(() {});
       } else if (m['t'] == 'hand') {
         if (m['v'] == true) {
           _raised.add(from);
@@ -192,6 +204,71 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
     }
     _send({'t': 'hand', 'v': _handUp});
     setState(() {});
+  }
+
+  final Set<String> _hold = {};
+  bool _held = false;
+
+  /// Stops (or restores) the sound of everyone else while I am on hold.
+  void _muteIncoming(bool mute) {
+    for (final rp in _room.remoteParticipants.values) {
+      for (final pub in rp.audioTrackPublications) {
+        final t = pub.track;
+        if (t == null) continue;
+        if (mute) {
+          t.disable();
+        } else {
+          t.enable();
+        }
+      }
+    }
+  }
+
+  Future<void> _toggleHold() async {
+    final lp = _room.localParticipant;
+    if (lp == null) return;
+    _held = !_held;
+    if (_held) {
+      _hold.add(lp.identity);
+    } else {
+      _hold.remove(lp.identity);
+    }
+    _send({'t': 'hold', 'v': _held});
+    _muteIncoming(_held);
+    try {
+      await lp.setMicrophoneEnabled(_held ? false : _mic);
+      await lp.setCameraEnabled(_held ? false : _cam);
+    } catch (_) {}
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _toggleShare() async {
+    final lp = _room.localParticipant;
+    if (lp == null) return;
+    try {
+      if (lp.isScreenShareEnabled()) {
+        await lp.setScreenShareEnabled(false);
+        await ScreenShareBridge.end();
+      } else {
+        if (!await ScreenShareBridge.begin()) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Screen sharing was not allowed.')),
+            );
+          }
+          return;
+        }
+        await lp.setScreenShareEnabled(true);
+      }
+    } catch (e) {
+      await ScreenShareBridge.end();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not start screen sharing.')),
+        );
+      }
+    }
+    if (mounted) setState(() {});
   }
 
   Future<void> _leave() async {
@@ -257,8 +334,19 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
     return null;
   }
 
+  VideoTrack? _screenOf(Participant p) {
+    for (final pub in p.videoTrackPublications) {
+      if (pub.source == TrackSource.screenShareVideo &&
+          !pub.muted &&
+          pub.track != null) {
+        return pub.track as VideoTrack;
+      }
+    }
+    return null;
+  }
+
   Widget _tile(Participant p) {
-    final v = _videoOf(p);
+    final v = _screenOf(p) ?? _videoOf(p);
     final isMe = p is LocalParticipant;
     final name = isMe ? 'You' : (p.name.isNotEmpty ? p.name : p.identity);
     final photos = widget.contactController.photos.value;
@@ -289,7 +377,12 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
               fit: StackFit.expand,
               children: [
                 if (v != null)
-                  VideoTrackRenderer(v, fit: VideoViewFit.cover)
+                  VideoTrackRenderer(
+                    v,
+                    fit: _screenOf(p) != null
+                        ? VideoViewFit.contain
+                        : VideoViewFit.cover,
+                  )
                 else
                   Center(
                     child: UserAvatar(
@@ -319,7 +412,7 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
                                 const Padding(
                                   padding: EdgeInsets.only(right: 4),
                                   child: Icon(Icons.mic_off,
-                                      size: 14, color: Colors.redAccent),
+                                      size: 18, color: Colors.redAccent),
                                 ),
                               Flexible(
                                 child: Text(
@@ -337,6 +430,25 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
                     ],
                   ),
                 ),
+                if (_hold.contains(p.identity))
+                  Positioned.fill(
+                    child: Container(
+                      color: Colors.black54,
+                      child: const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.pause_circle_filled,
+                                color: Colors.white, size: 40),
+                            SizedBox(height: 4),
+                            Text('On hold',
+                                style: TextStyle(
+                                    color: Colors.white, fontSize: 14)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 if (_raised.contains(p.identity))
                   Positioned(
                     top: 6,
@@ -537,7 +649,7 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
                   highlighted: !_mic,
                   onPressed: () async {
                     _mic = !_mic;
-                    await lp?.setMicrophoneEnabled(_mic);
+                    await lp?.setMicrophoneEnabled(_held ? false : _mic);
                     if (mounted) setState(() {});
                   },
                 ),
@@ -546,7 +658,7 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
                   highlighted: !_cam,
                   onPressed: () async {
                     _cam = !_cam;
-                    await lp?.setCameraEnabled(_cam);
+                    await lp?.setCameraEnabled(_held ? false : _cam);
                     if (mounted) setState(() {});
                   },
                 ),
@@ -594,6 +706,32 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
                     highlighted: _showReact,
                     onPressed: () => setState(() => _showReact = !_showReact),
                   ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Glass(
+            blur: 14,
+            tint: Colors.black,
+            opacity: 0.30,
+            borderRadius: BorderRadius.circular(36),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AnimatedCallButton(
+                  icon: _held ? Icons.play_arrow : Icons.pause,
+                  highlighted: _held,
+                  onPressed: _toggleHold,
+                ),
+                const SizedBox(width: 24),
+                AnimatedCallButton(
+                  icon: (lp?.isScreenShareEnabled() ?? false)
+                      ? Icons.stop_screen_share
+                      : Icons.screen_share,
+                  highlighted: lp?.isScreenShareEnabled() ?? false,
+                  onPressed: _toggleShare,
+                ),
               ],
             ),
           ),
