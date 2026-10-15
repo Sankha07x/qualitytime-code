@@ -69,6 +69,7 @@ class _CallScreenState extends State<CallScreen> {
     });
     widget.controller.phase.addListener(_syncPip);
     widget.controller.groupInvite.addListener(_onGroupInvite);
+    _loadTint();
     WidgetsBinding.instance.addPostFrameCallback((_) => _onGroupInvite());
     widget.controller.videoActive.addListener(_syncPip);
     _syncPip();
@@ -262,6 +263,24 @@ class _CallScreenState extends State<CallScreen> {
     await Future.delayed(const Duration(milliseconds: 1200));
     if (_pip) _pipChannel.invokeMethod('leave').catchError((_) {});
     if (mounted) Navigator.of(context).pop();
+  }
+
+  /// Colour of the top panels: taken from the wallpaper, or the accent colour.
+  Color _tint = Colors.black;
+
+  Future<void> _loadTint() async {
+    final wp = AppSettings.wallpaper.value;
+    try {
+      if (wp != null && File(wp).existsSync()) {
+        final s = await ColorScheme.fromImageProvider(
+          provider: ResizeImage(FileImage(File(wp)), width: 120),
+          brightness: Brightness.dark,
+        );
+        if (mounted) setState(() => _tint = s.primaryContainer);
+        return;
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _tint = Color(AppSettings.accent.value));
   }
 
   void _snackMsg(String t) {
@@ -662,7 +681,7 @@ class _CallScreenState extends State<CallScreen> {
                         vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.30),
+                        color: _tint.withOpacity(0.55),
                         borderRadius: BorderRadius.circular(20),
                         border:
                             Border.all(color: Colors.white.withOpacity(0.35)),
@@ -697,7 +716,7 @@ class _CallScreenState extends State<CallScreen> {
                         decoration: BoxDecoration(
                           color: on
                               ? Colors.white.withOpacity(0.92)
-                              : Colors.black.withOpacity(0.30),
+                              : _tint.withOpacity(0.55),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
                               color: Colors.white.withOpacity(0.35)),
@@ -832,7 +851,7 @@ class _CallScreenState extends State<CallScreen> {
                 children: [
                   Glass(
                     blur: 14,
-                    tint: Colors.black,
+                    tint: _tint,
                     opacity: 0.30,
                     borderRadius: BorderRadius.circular(36),
                     padding: const EdgeInsets.symmetric(

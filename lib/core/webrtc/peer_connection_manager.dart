@@ -21,6 +21,9 @@ class PeerConnectionManager {
   bool _gotAnswer = false;
   bool _offering = false;
   RTCRtpSender? _videoSender;
+
+  /// True once the other phone answered (it sent "ready").
+  final remoteReady = ValueNotifier<bool>(false);
   bool _sharing = false;
   Map<String, dynamic>? _pendingOffer;
   Timer? _readyTimer;
@@ -213,6 +216,7 @@ class PeerConnectionManager {
     final type = data['type'];
 
     if (type == 'ready') {
+      remoteReady.value = true;
       if (_isCaller) await _sendOffer();
       return;
     }
@@ -644,6 +648,7 @@ class PeerConnectionManager {
     remoteVideoAdded.dispose();
     remoteCameraOn.dispose();
     remoteScreenOn.dispose();
+    remoteReady.dispose();
     groupInvite.dispose();
     remoteOnHold.dispose();
     remoteMicOn.dispose();

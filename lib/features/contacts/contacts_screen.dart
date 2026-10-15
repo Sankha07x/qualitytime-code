@@ -153,6 +153,12 @@ class _ContactsScreenState extends State<ContactsScreen>
     if (session.isEmpty) return;
     final uid = c['u']?.toString() ?? '';
     final video = c['v'] == true;
+    // Voice call answered from the notification: stay in the background.
+    if (!video) {
+      Future.delayed(const Duration(milliseconds: 600), () {
+        const MethodChannel('qt/pip').invokeMethod('leave').catchError((_) {});
+      });
+    }
     final saved = widget.contactController.contacts.value
         .any((x) => x.uid == uid);
     final name =
@@ -681,7 +687,11 @@ class _ContactsScreenState extends State<ContactsScreen>
     final busySub = _service.onBusy.listen((s) async {
       if (s != sessionId || !mounted) return;
       final p = controller.phase.value;
-      if (p == CallPhase.active || p == CallPhase.ended) return;
+      if (p == CallPhase.active ||
+            p == CallPhase.ended ||
+            controller.peerAnswered) {
+          return;
+        }
       controller.endLabel = 'On another call';
       _tones.playBusy();
       await controller.endCall(notifyPeer: false);
@@ -712,8 +722,10 @@ class _ContactsScreenState extends State<ContactsScreen>
       if (s == sessionId) startRingback();
     });
     // Calling stage: no ringing signal for 8 s, end the call as offline.
-    offlineTimer = Timer(const Duration(seconds: 8), () async {
-      if (ringbackOn || controller.phase.value != CallPhase.connecting) {
+    offlineTimer = Timer(const Duration(seconds: 30), () async {
+      if (ringbackOn ||
+          controller.peerAnswered ||
+          controller.phase.value != CallPhase.connecting) {
         return;
       }
       controller.endLabel = 'Offline. Their phone is not reachable.';

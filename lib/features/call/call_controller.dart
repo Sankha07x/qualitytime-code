@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../../core/signaling/supabase_signaling.dart';
@@ -94,6 +95,7 @@ class CallController {
     _peerManager.remoteStream.addListener(_applyBoost);
     _peerManager.weakNetwork.addListener(_applyQuality);
     _peerManager.remoteEnded.addListener(_onRemoteEnded);
+    _peerManager.remoteReady.addListener(_onPeerReady);
     _peerManager.remoteVideoAdded.addListener(_onRemoteVideo);
     _peerManager.autoVideo.addListener(_applyQuality);
     _loadDefaults();
@@ -104,6 +106,7 @@ class CallController {
       case CallConnectionState.connected:
         _phaseController.value = CallPhase.active;
         _connectedAt ??= DateTime.now();
+        _connectGuard?.cancel();
         _startOngoing();
         _applyQuality();
         break;
@@ -132,6 +135,7 @@ class CallController {
     await mediaManager.getLocalStream(videoEnabled: video);
     await _signaling.joinSession(sessionId);
     await _peerManager.waitForCall();
+    _armConnectGuard(30);
   }
 
   bool _hasContactDefault = false;
@@ -169,6 +173,26 @@ class CallController {
 
   Future<void> sendGroupInvite(Map<String, dynamic> info) =>
       _peerManager.sendGroupInvite(info);
+
+  /// True once the other phone answered the call.
+  bool get peerAnswered => _peerManager.remoteReady.value;
+
+  Timer? _connectGuard;
+
+  /// If the call is still not connected after [seconds], end it cleanly.
+  void _armConnectGuard(int seconds) {
+    _connectGuard?.cancel();
+    _connectGuard = Timer(Duration(seconds: seconds), () {
+      final p = _phaseController.value;
+      if (p == CallPhase.active || p == CallPhase.ended) return;
+      endLabel = 'Could not connect';
+      endCall(notifyPeer: true);
+    });
+  }
+
+  void _onPeerReady() {
+    if (_peerManager.remoteReady.value) _armConnectGuard(25);
+  }
 
   bool _captureBusy = false;
 
@@ -342,6 +366,8 @@ class CallController {
     _peerManager.state.removeListener(_onConnectionStateChanged);
     _peerManager.weakNetwork.removeListener(_applyQuality);
     _peerManager.remoteEnded.removeListener(_onRemoteEnded);
+    _peerManager.remoteReady.removeListener(_onPeerReady);
+    _connectGuard?.cancel();
     _peerManager.dispose();
     _signaling.dispose();
     _phaseController.dispose();
