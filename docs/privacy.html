@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QualityTime Privacy Policy - Zero-Log P2P Encryption & Data Protection</title>
+  
+  <!-- SEO Meta Tags -->
+  <meta name="description" content="Privacy Policy for QualityTime peer-to-peer calling app. Learn how we protect your privacy with direct device-to-device WebRTC encryption and zero media data retention.">
+  <meta name="keywords" content="QualityTime privacy policy, encrypted calling privacy, P2P call security, no log voice calling, WebRTC security">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="./privacy.html">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="QualityTime Privacy Policy">
+  <meta property="og:description" content="Our commitment to zero media retention and peer-to-peer privacy.">
+  <meta property="og:image" content="assets/img/app-icon.png">
+  <meta property="og:url" content="https://sankha07x.github.io/qualitytime/privacy.html">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="apple-touch-icon" href="assets/img/app-icon.png">
+  <meta name="theme-color" content="#042F2E">
+
+  <!-- Fonts & CSS -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <header class="navbar">
+    <div class="container nav-container">
+      <a href="index.html" class="brand">
+        <img src="assets/img/app-icon.png" alt="QualityTime Logo" class="brand-icon">
+        <span class="brand-name">Quality<span>Time</span></span>
+      </a>
+
+      <nav>
+        <ul class="nav-links">
+          <li><a href="index.html" class="nav-link">Home</a></li>
+          <li><a href="features.html" class="nav-link">Features</a></li>
+          <li><a href="download.html" class="nav-link">Download</a></li>
+          <li><a href="changelog.html" class="nav-link">Changelog</a></li>
+          <li><a href="faq.html" class="nav-link">FAQ & Guide</a></li>
+          <li><a href="privacy.html" class="nav-link active">Privacy</a></li>
+        </ul>
+      </nav>
+
+      <div class="nav-cta">
+        <a href="download.html" class="btn btn-primary btn-sm dyn-apk-link">
+          <span>Get APK <strong class="dyn-version">v0.8.4</strong></span>
+        </a>
+        <button class="menu-toggle" aria-label="Toggle navigation menu">☰</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Content Section -->
+  <div class="container container-narrow" style="padding-top: 50px;">
+    <div class="pill">
+      <span class="pulse-dot"></span>
+      <span>TRANSPARENCY FIRST</span>
+    </div>
+    <h1 style="margin: 18px 0 10px;">Privacy Policy</h1>
+    <p class="subtle">Last Updated: October 2026 &bull; Effective Immediately</p>
+
+    <div class="legal-content">
+      <p>
+        At <strong>QualityTime</strong>, we believe that private personal communications belong exclusively to the people having them. Unlike conventional communication apps that process, inspect, or archive your conversations on corporate servers, QualityTime is engineered upon a <strong>peer-to-peer (P2P) architecture</strong> where your audio and video streams never pass through an intermediary media storage vault.
+      </p>
+
+      <h2>1. The Peer-to-Peer Architectural Model</h2>
+      <p>
+        QualityTime leverages the WebRTC (Web Real-Time Communication) standard. When you initiate a call:
+      </p>
+      <ul>
+        <li>A lightweight signaling handshake occurs to exchange connection coordinates (IP/port ICE candidates).</li>
+        <li>Once established, media streams (microphone voice and camera video) are encrypted end-to-end via <strong>DTLS-SRTP (Datagram Transport Layer Security - Secure Real-time Transport Protocol)</strong>.</li>
+        <li>Your media flows directly from your device to the peer device without stopping at or being recorded by any QualityTime database or media server.</li>
+      </ul>
+
+      <h2>2. What Information We Do NOT Collect</h2>
+      <ul>
+        <li><strong>Call Content:</strong> We do not record, transcribe, listen to, or save any voice, video, screen share, or animated reaction data.</li>
+        <li><strong>Media Attachments:</strong> Photos, PDF documents, and audio voice notes exchanged during active peer sessions are delivered directly and stored locally on your device.</li>
+        <li><strong>Local Customizations:</strong> Custom wallpapers, custom ringtones, volume settings, and backdrop blur adjustments remain 100% on your device's local file storage and are never uploaded.</li>
+      </ul>
+
+      <h2>3. Information Used Solely to Facilitate Service</h2>
+      <ul>
+        <li><strong>Signaling & Authentication:</strong> To route incoming calls and friend invitations, a random unique identifier (UID) or authenticated phone token is used by our signaling layer to notify the recipient that you are ringing them.</li>
+        <li><strong>Push Notifications (FCM):</strong> We use Firebase Cloud Messaging to send an encrypted wake-up signal to your phone when an incoming call arrives while the app is in the background or locked. No call content is included in notifications.</li>
+        <li><strong>Update Checks:</strong> The app periodically queries our public GitHub manifest (<code>update.json</code>) to notify you of newer releases. No personal identifiers or telemetry are sent during this version check.</li>
+      </ul>
+
+      <h2>4. Device Permissions & Why They Are Required</h2>
+      <p>To function as a high-performance communication tool, QualityTime requests the following Android permissions:</p>
+      <ul>
+        <li><strong>Camera (<code>android.permission.CAMERA</code>):</strong> Required to capture local video for 1080p and video calling. Activated strictly during active video calls or photo selection.</li>
+        <li><strong>Microphone (<code>android.permission.RECORD_AUDIO</code>):</strong> Required to transmit audio through the Opus codec during calls and voice messages.</li>
+        <li><strong>Notifications & Full-Screen Intent:</strong> Required to ring your device on lockscreen when someone calls you.</li>
+        <li><strong>Storage / Media:</strong> Required only when you explicitly select a custom wallpaper or custom ringtone audio file from your device storage.</li>
+      </ul>
+
+      <h2>5. Security & Encryption Standards</h2>
+      <p>
+        All real-time streams utilize DTLS-SRTP encryption with modern cipher suites. Session encryption keys are generated randomly in volatile RAM for each call and are irreversibly purged when the call disconnects.
+      </p>
+
+      <h2>6. Third-Party Services</h2>
+      <p>
+        QualityTime uses open-source WebRTC libraries, Supabase for minimal authentication and signaling coordination, and Google Firebase for waking up Android devices upon incoming rings. We do not integrate third-party ad networks, tracking SDKs, or data brokers.
+      </p>
+
+      <h2>7. Contact & Security Reports</h2>
+      <p>
+        For security vulnerability disclosures, privacy inquiries, or developer questions, please open an inquiry on our official GitHub repository:
+      </p>
+      <p>
+        GitHub Repository: <a href="https://github.com/Sankha07x/qualitytime-releases" target="_blank" rel="noopener" style="color: #2dd4bf; text-decoration: underline;">https://github.com/Sankha07x/qualitytime-releases</a>
+      </p>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <div class="brand">
+            <img src="assets/img/app-icon.png" alt="QualityTime Logo" class="brand-icon">
+            <span class="brand-name">Quality<span>Time</span></span>
+          </div>
+          <p>Low-bandwidth, high-quality P2P voice & video calling. Direct peer encryption with no central recording server.</p>
+        </div>
+
+        <div class="footer-col">
+          <h4>Navigation</h4>
+          <ul class="footer-links">
+            <li><a href="index.html" class="footer-link">Home</a></li>
+            <li><a href="features.html" class="footer-link">Features</a></li>
+            <li><a href="download.html" class="footer-link">Download</a></li>
+            <li><a href="changelog.html" class="footer-link">Changelog</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Support & Docs</h4>
+          <ul class="footer-links">
+            <li><a href="faq.html" class="footer-link">FAQ & Help</a></li>
+            <li><a href="download.html#install-guide" class="footer-link">How to Install APK</a></li>
+            <li><a href="privacy.html" class="footer-link">Privacy Policy</a></li>
+            <li><a href="terms.html" class="footer-link">Terms of Service</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Releases</h4>
+          <ul class="footer-links">
+            <li><a href="https://github.com/Sankha07x/qualitytime-releases" target="_blank" rel="noopener" class="footer-link">GitHub Repository ↗</a></li>
+            <li><a href="https://github.com/Sankha07x/qualitytime-releases/releases" target="_blank" rel="noopener" class="footer-link">GitHub Releases ↗</a></li>
+            <li><a href="https://raw.githubusercontent.com/Sankha07x/qualitytime-releases/main/update.json" target="_blank" rel="noopener" class="footer-link">update.json Feed ↗</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>&copy; 2026 QualityTime. All rights reserved. Built with WebRTC & Flutter.</div>
+        <div style="display: flex; gap: 20px;">
+          <a href="privacy.html" class="footer-link">Privacy</a>
+          <a href="terms.html" class="footer-link">Terms</a>
+          <a href="sitemap.xml" class="footer-link">Sitemap</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/js/main.js"></script>
+</body>
+</html>

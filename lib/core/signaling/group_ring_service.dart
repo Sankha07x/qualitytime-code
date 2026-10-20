@@ -38,7 +38,7 @@ class GroupRinger {
         unawaited(_send(u, data));
       }
     });
-    unawaited(_push(groupId, video, only));
+    if (!groupId.startsWith('call_')) unawaited(_push(groupId, video, only));
   }
 
   static Future<void> _send(String toUid, Map<String, dynamic> data) async {

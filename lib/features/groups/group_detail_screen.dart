@@ -86,7 +86,7 @@ class GroupDetailScreen extends StatelessWidget {
                 icon: const Icon(Icons.videocam),
                 onPressed: () => _call(context, g, true),
               ),
-              if (g.isOwner)
+              if (g.members.contains(myUid))
                 IconButton(
                   tooltip: 'Add people',
                   icon: const Icon(Icons.person_add),

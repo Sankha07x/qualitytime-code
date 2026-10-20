@@ -196,7 +196,7 @@ await _localStream!.addTrack(track);
     try {
       final s = await navigator.mediaDevices.getDisplayMedia({
         'video': {
-          'frameRate': {'ideal': 30, 'max': 30},
+          'frameRate': {'ideal': 60, 'max': 60},
         },
         'audio': false,
       });

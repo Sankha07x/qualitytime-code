@@ -58,7 +58,10 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
     roomOptions: RoomOptions(
       adaptiveStream: true,
       defaultScreenShareCaptureOptions: ScreenShareCaptureOptions(
-        params: VideoParametersPresets.screenShareH1080FPS30,
+        params: const VideoParameters(
+  dimensions: VideoDimensions(1920, 1080),
+  encoding: VideoEncoding(maxBitrate: 3000000, maxFramerate: 60),
+),
       ),
       dynacast: true,
       defaultCameraCaptureOptions:
@@ -126,7 +129,10 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
         throw 'Microphone permission is needed.';
       }
       final res = await Supabase.instance.client.functions
-          .invoke('livekit-token', body: {'group_id': widget.groupId});
+          .invoke('livekit-token',
+              body: widget.groupId.startsWith('call_')
+                  ? {'room': widget.groupId}
+                  : {'group_id': widget.groupId});
       final d = res.data;
       if (d is! Map || d['token'] == null) {
         throw (d is Map ? d['error'] : null) ?? 'Could not get a call token.';
@@ -278,6 +284,35 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
   }
 
   Future<void> _addPeople() async {
+    if (!widget.groupId.startsWith('call_')) return _addPeopleOld();
+    final inRoom = <String>{
+      widget.myUid,
+      for (final p in _room.remoteParticipants.values) p.identity,
+    };
+    final uids = await pickFriends(
+      context,
+      widget.contactController,
+      exclude: inRoom,
+    );
+    if (uids == null || uids.isEmpty) return;
+    GroupRinger.ring(
+      groupId: widget.groupId,
+      groupName: widget.groupName,
+      emoji: widget.emoji,
+      color: widget.color,
+      mode: widget.mode,
+      members: uids,
+      video: widget.video,
+      fromUid: widget.myUid,
+      only: uids,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Calling them...')),
+    );
+  }
+
+  Future<void> _addPeopleOld() async {
     final g = _group;
     if (g == null) return;
     final uids = await pickFriends(
@@ -560,7 +595,8 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
   }
 
   Widget _topBar(int count) {
-    final canAdd = _group?.isOwner == true;
+    final canAdd = widget.groupId.startsWith('call_') ||
+        (_group?.members.contains(widget.myUid) ?? false);
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
       child: Row(

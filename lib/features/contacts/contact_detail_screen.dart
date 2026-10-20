@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../utils/user_avatar.dart';
+import '../../utils/photo_viewer.dart';
 import '../call/call_log/call_log_controller.dart';
 import 'contact_controller.dart';
 import 'contact_model.dart';
@@ -107,7 +108,9 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
           .from('chat_messages')
           .select('id')
           .eq('from_uid', widget.contact.uid)
-          .eq('to_uid', me);
+          .eq('to_uid', me)
+          .neq('kind', 'delete')
+          .isFilter('read_at', null);
       if (mounted) setState(() => _unreadChat = (rows as List).length);
     } catch (_) {}
   }
@@ -190,8 +193,8 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove contact?'),
-        content: Text('${c.displayName} will be removed from your contacts.'),
+        title: const Text('Remove friend?'),
+        content: Text('${c.displayName} will be removed from your friends, and you will be removed from theirs too.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -234,7 +237,7 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.person_remove, color: Colors.redAccent),
-            tooltip: 'Remove contact',
+            tooltip: 'Remove Friend',
             onPressed: () => _remove(
               widget.contactController.contacts.value
                       .where((x) => x.uid == widget.contact.uid)
@@ -257,11 +260,21 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
               Center(
                 child: ValueListenableBuilder<Map<String, String>>(
                   valueListenable: widget.contactController.photos,
-                  builder: (context, photos, _) => UserAvatar(
-                    name: c.displayName,
-                    photoUrl: photos[c.uid],
-                    radius: 54,
-                  ),
+                  builder: (context, photos, _) {
+                    final url = photos[c.uid];
+                    final has = url != null && url.isNotEmpty;
+                    return GestureDetector(
+                      onTap: has
+                          ? () => showPhotoViewer(context, url!,
+                              title: c.displayName)
+                          : null,
+                      child: UserAvatar(
+                        name: c.displayName,
+                        photoUrl: url,
+                        radius: 54,
+                      ),
+                    );
+                  },
                 ),
               ),
               const SizedBox(height: 16),

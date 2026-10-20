@@ -43,11 +43,12 @@ class Glass extends StatelessWidget {
       ),
       child: Material(type: MaterialType.transparency, child: child),
     );
-    Widget w = ClipRRect(
+    Widget w = ClipRRect(clipBehavior: Clip.hardEdge,
       borderRadius: borderRadius,
       child: (blurOn && blur > 0)
           ? BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+              filter: ImageFilter.blur(
+                  sigmaX: blur > 8 ? 8 : blur, sigmaY: blur > 8 ? 8 : blur),
               child: inner,
             )
           : inner,

@@ -94,8 +94,33 @@ class _ChatScreenState extends State<ChatScreen> {
       true;
 
   Future<void> _delChat(ChatMessage m) async {
-    if (await _ask('Delete message?', 'It is removed from this phone only.')) {
+    final mine = m.fromUid == widget.myUid;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete message?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'me'),
+            child: const Text('Delete for me'),
+          ),
+          if (mine)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'all'),
+              child: const Text('Delete for everyone'),
+            ),
+        ],
+      ),
+    );
+    if (choice == 'me') {
       await _chat.deleteLocal(m);
+    } else if (choice == 'all') {
+      final err = await _chat.deleteForEveryone(m);
+      if (err != null) _snack(err);
     }
   }
 
@@ -160,8 +185,29 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Align(alignment: Alignment.centerLeft, child: content),
           ),
           const SizedBox(height: 2),
-          Text(hm(m.createdAt),
-              style: TextStyle(color: fg.withOpacity(0.7), fontSize: 11)),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(hm(m.createdAt),
+                  style:
+                      TextStyle(color: fg.withOpacity(0.7), fontSize: 11)),
+              if (mine) ...[
+                const SizedBox(width: 6),
+                Icon(m.status > 0 ? Icons.done_all : Icons.done,
+                    size: 14,
+                    color: Colors.white
+                        .withOpacity(m.status == 2 ? 1 : 0.85)),
+                const SizedBox(width: 2),
+                Text(
+                    m.status == 2
+                        ? 'Read'
+                        : (m.status == 1 ? 'Delivered' : 'Sent'),
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.8),
+                        fontSize: 11)),
+              ],
+            ],
+          ),
         ],
       ),
     );

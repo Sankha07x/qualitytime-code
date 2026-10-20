@@ -35,6 +35,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
   )..repeat();
 
   Timer? _buzz;
+  Timer? _stopSound;
   final _tonePlayer = AudioPlayer();
   bool get _ownSound => AppSettings.incomingTone.value != 'system';
 
@@ -44,6 +45,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
     LockScreen.hold();
     _ring();
     _startSound();
+    _stopSound = Timer(const Duration(seconds: 30), () => _tonePlayer.stop());
     _buzz = Timer.periodic(const Duration(seconds: 2), (_) => _ring());
   }
 
@@ -72,6 +74,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
   @override
   void dispose() {
     _buzz?.cancel();
+    _stopSound?.cancel();
     _tonePlayer.stop();
     _tonePlayer.dispose();
     _anim.dispose();

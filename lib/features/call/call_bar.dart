@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'active_call.dart';
 import '../../utils/glass.dart';
+import '../../utils/settings/app_settings.dart';
 
 /// Wraps the whole app: shows a green "ongoing call" bar on top of every
 /// screen while a call is minimized.
@@ -72,7 +73,7 @@ class _BarState extends State<_Bar> {
   Widget build(BuildContext context) {
     return Glass(
       borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-      tint: const Color(0xFF0D9488),
+      tint: Color(AppSettings.accent.value),
       opacity: 0.85,
       child: SafeArea(
         bottom: false,

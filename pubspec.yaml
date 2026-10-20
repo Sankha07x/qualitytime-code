@@ -1,7 +1,7 @@
 name: QualityTime
 description: Low-bandwidth, high-quality P2P voice/video calling app.
 publish_to: 'none'
-version: 0.7.7+24
+version: 0.8.8+26
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

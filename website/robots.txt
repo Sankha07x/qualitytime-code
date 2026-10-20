@@ -1,0 +1,6 @@
+# QualityTime Robots.txt for Googlebot & Search Crawlers
+User-agent: *
+Allow: /
+
+# Sitemaps
+Sitemap: sitemap.xml

@@ -3,7 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/auth/phone_auth_service.dart';
 import '../../core/auth/profile_service.dart';
+import 'dart:typed_data';
 import '../../utils/user_avatar.dart';
+import '../../utils/photo_viewer.dart';
+import '../../utils/photo_editor_screen.dart';
 
 /// Edit own photo, name and ID. Pops with true when the ID was changed.
 class ProfileScreen extends StatefulWidget {
@@ -67,6 +70,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _pickPhoto();
               },
             ),
+if (_me?.photoUrl != null)
+              ListTile(
+                leading: const Icon(Icons.fullscreen),
+                title: const Text('View photo'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openBig();
+                },
+              ),
+            if (_me?.photoUrl != null)
+              ListTile(
+                leading: const Icon(Icons.tune),
+                title: const Text('Edit current photo'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _editCurrent();
+                },
+              ),
             if (_me?.photoUrl != null)
               ListTile(
                 leading: const Icon(Icons.delete_outline),
@@ -82,18 +103,57 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+void _openBig() {
+    final url = _me?.photoUrl;
+    if (url == null || url.isEmpty) {
+      _photoMenu();
+      return;
+    }
+    showPhotoViewer(context, url, title: _me?.name);
+  }
+
+  /// Opens the editor on the photo I already have.
+  Future<void> _editCurrent() async {
+    final url = _me?.photoUrl;
+    if (url == null || _busy) return;
+    try {
+      final data = await NetworkAssetBundle(Uri.parse(url)).load(url);
+      if (!mounted) return;
+      final bytes = await Navigator.of(context).push<Uint8List>(
+        MaterialPageRoute(
+          builder: (_) =>
+              PhotoEditorScreen(bytes: data.buffer.asUint8List()),
+        ),
+      );
+      if (bytes == null || !mounted) return;
+      setState(() => _busy = true);
+      final newUrl = await _service.uploadPhoto(bytes);
+      if (!mounted) return;
+      setState(() => _me = _me?.copyWith(photoUrl: newUrl));
+    } catch (_) {
+      _toast("Couldn't update the photo");
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _pickPhoto() async {
     if (_busy) return;
     try {
       final x = await ImagePicker().pickImage(
         source: ImageSource.gallery,
-        maxWidth: 640,
-        maxHeight: 640,
+        maxWidth: 1600,
+        maxHeight: 1600,
         imageQuality: 82,
       );
       if (x == null) return;
       setState(() => _busy = true);
-      final bytes = await x.readAsBytes();
+      final raw = await x.readAsBytes();
+      if (!mounted) return;
+      final bytes = await Navigator.of(context).push<Uint8List>(
+        MaterialPageRoute(builder: (_) => PhotoEditorScreen(bytes: raw)),
+      );
+      if (bytes == null) return;
       final url = await _service.uploadPhoto(bytes);
       if (!mounted) return;
       setState(() => _me = _me?.copyWith(photoUrl: url));
@@ -208,7 +268,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 Center(
                   child: GestureDetector(
-                    onTap: _photoMenu,
+                    onTap: _openBig,
                     child: Stack(
                       children: [
                         UserAvatar(
@@ -233,13 +293,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         Positioned(
                           right: 0,
                           bottom: 0,
-                          child: CircleAvatar(
-                            radius: 18,
-                            backgroundColor: scheme.primary,
-                            child: Icon(
-                              Icons.camera_alt,
-                              size: 18,
-                              color: scheme.onPrimary,
+                          child: GestureDetector(
+                            onTap: _photoMenu,
+                            child: CircleAvatar(
+                              radius: 18,
+                              backgroundColor: scheme.primary,
+                              child: Icon(
+                                Icons.camera_alt,
+                                size: 18,
+                                color: scheme.onPrimary,
+                              ),
                             ),
                           ),
                         ),

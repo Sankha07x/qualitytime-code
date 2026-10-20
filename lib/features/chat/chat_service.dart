@@ -15,7 +15,8 @@ class ChatMessage {
   final String? localName; // file saved on this phone
   final int? fileSize;
   final DateTime createdAt;
-  const ChatMessage({
+  int status; // my messages: 0 sent, 1 delivered, 2 read
+  ChatMessage({
     required this.id,
     required this.fromUid,
     required this.toUid,
@@ -25,6 +26,7 @@ class ChatMessage {
     this.localName,
     this.fileSize,
     required this.createdAt,
+    this.status = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -37,6 +39,7 @@ class ChatMessage {
         'localName': localName,
         'fileSize': fileSize,
         'at': createdAt.toUtc().toIso8601String(),
+        'status': status,
       };
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
@@ -49,6 +52,7 @@ class ChatMessage {
         localName: j['localName'] as String?,
         fileSize: (j['fileSize'] as num?)?.toInt(),
         createdAt: DateTime.parse(j['at'] as String).toLocal(),
+        status: (j['status'] as num?)?.toInt() ?? 2,
       );
 }
 
@@ -112,14 +116,18 @@ class ChatService {
   Future<void> start() async {
     await _load();
     await fetchIncoming();
+    await syncSent();
     if (_disposed) return;
     _ch = _c
         .channel('chat:$myUid:$peerUid')
         .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
+          event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'chat_messages',
-          callback: (_) => fetchIncoming(),
+          callback: (_) {
+            fetchIncoming();
+            syncSent();
+          },
         )
         .subscribe();
   }
@@ -134,9 +142,20 @@ class ChatService {
           .select()
           .eq('from_uid', peerUid)
           .eq('to_uid', myUid)
+          .isFilter('read_at', null)
           .order('created_at');
       for (final r in rows as List) {
         final row = Map<String, dynamic>.from(r);
+        if (row['kind'] == 'delete') {
+          await _applyDelete((row['body'] ?? '').toString());
+          try {
+            await _c
+                .from('chat_messages')
+                .delete()
+                .eq('id', row['id'] as String);
+          } catch (_) {}
+          continue;
+        }
         final id = row['id'] as String;
         final isFile = row['kind'] == 'file';
         final cloudPath = row['file_path'] as String?;
@@ -167,7 +186,14 @@ class ChatService {
           if (cloudPath != null) {
             await _c.storage.from(bucket).remove([cloudPath]); // file first
           }
-          await _c.from('chat_messages').delete().eq('id', id);
+          final now = DateTime.now().toUtc().toIso8601String();
+          await _c.from('chat_messages').update({
+            'read_at': now,
+            'delivered_at': now,
+            'body': null,
+            'file_path': null,
+            'file_name': null,
+          }).eq('id', id);
         } catch (e) {
           debugPrint('CHAT cloud delete failed: $e');
         }
@@ -259,6 +285,84 @@ class ChatService {
     if (n == null) return null;
     final f = File('${(await _dir()).path}/$n');
     return await f.exists() ? f : null;
+  }
+
+  /// Updates the ticks of my sent messages (sent / delivered / read).
+  Future<void> syncSent() async {
+    if (_disposed) return;
+    try {
+      final rows = await _c
+          .from('chat_messages')
+          .select('id, delivered_at, read_at')
+          .eq('from_uid', myUid)
+          .eq('to_uid', peerUid)
+          .neq('kind', 'delete');
+      var changed = false;
+      for (final r in rows as List) {
+        final id = r['id'] as String;
+        final st =
+            r['read_at'] != null ? 2 : (r['delivered_at'] != null ? 1 : 0);
+        for (final m in messages.value) {
+          if (m.id == id && m.status < st) {
+            m.status = st;
+            changed = true;
+          }
+        }
+        if (st == 2) {
+          try {
+            await _c.from('chat_messages').delete().eq('id', id);
+          } catch (_) {}
+        }
+      }
+      if (changed && !_disposed) {
+        messages.value = [...messages.value];
+        await _save();
+      }
+    } catch (e) {
+      debugPrint('CHAT sync failed: $e');
+    }
+  }
+
+  Future<void> _applyDelete(String id) async {
+    final hit =
+        messages.value.where((x) => x.id == id && x.fromUid == peerUid);
+    if (hit.isEmpty) return;
+    await deleteLocal(hit.first);
+  }
+
+  /// Removes my message here and on their phone. Returns an error or null.
+  Future<String?> deleteForEveryone(ChatMessage m) async {
+    var needSignal = true;
+    try {
+      final gone = await _c
+          .from('chat_messages')
+          .delete()
+          .eq('id', m.id)
+          .select('read_at, file_path');
+      final list = gone as List;
+      if (list.isNotEmpty && list.first['read_at'] == null) {
+        needSignal = false; // they never received it
+        final p = list.first['file_path'] as String?;
+        if (p != null) {
+          try {
+            await _c.storage.from(bucket).remove([p]);
+          } catch (_) {}
+        }
+      }
+      if (needSignal) {
+        await _c.from('chat_messages').insert({
+          'from_uid': myUid,
+          'to_uid': peerUid,
+          'kind': 'delete',
+          'body': m.id,
+        });
+      }
+    } catch (e) {
+      debugPrint('CHAT delete for everyone failed: $e');
+      return 'Could not delete. Check your internet.';
+    }
+    await deleteLocal(m);
+    return null;
   }
 
   /// Removes the message from this phone only.

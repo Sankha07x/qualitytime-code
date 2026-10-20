@@ -73,6 +73,44 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
     }
   }
 
+  Widget _holdSection() {
+    final scheme = Theme.of(context).colorScheme;
+    Widget check(bool on) => on
+        ? Icon(Icons.check_circle, color: scheme.primary)
+        : const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _section('Hold sound (plays on your phone when someone puts you on hold)'),
+        ValueListenableBuilder<String>(
+          valueListenable: AppSettings.holdTone,
+          builder: (context, cur, _) => Column(
+            children: [
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.volume_off),
+                title: const Text('No sound'),
+                trailing: check(cur == 'off'),
+                onTap: () => AppSettings.setHoldTone('off'),
+              ),
+              for (final e in AppSettings.tones.entries)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.music_note),
+                  title: Text(e.value),
+                  trailing: check(cur == e.key),
+                  onTap: () {
+                    AppSettings.setHoldTone(e.key);
+                    _preview(e.key);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _section(String t) => Padding(
         padding: const EdgeInsets.fromLTRB(4, 22, 4, 10),
         child: Text(
@@ -317,6 +355,8 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
             notifier: AppSettings.incomingTone,
             onSelect: AppSettings.setIncomingTone,
             incoming: true,
+          ),
+          _holdSection(
           ),
         ],
       ),

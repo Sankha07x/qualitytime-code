@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QualityTime FAQ & Support - Frequently Asked Questions & Troubleshooting</title>
+  
+  <!-- SEO Meta Tags -->
+  <meta name="description" content="Frequently Asked Questions about QualityTime P2P calling app. Learn how peer-to-peer WebRTC works, how to install the APK on Android, troubleshooting connection issues, and privacy details.">
+  <meta name="keywords" content="QualityTime FAQ, P2P calling help, how to install QualityTime APK, WebRTC connection troubleshooting, is QualityTime safe, QualityTime support">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="./faq.html">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="QualityTime FAQ & Help Center">
+  <meta property="og:description" content="Get answers about QualityTime installation, P2P security, 1080p 60fps calling, and network troubleshooting.">
+  <meta property="og:image" content="assets/img/app-icon.png">
+  <meta property="og:url" content="https://sankha07x.github.io/qualitytime/faq.html">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="QualityTime FAQ & Support Guide">
+  <meta name="twitter:description" content="Everything you need to know about QualityTime peer-to-peer audio and video calling.">
+  <meta name="twitter:image" content="assets/img/app-icon.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="apple-touch-icon" href="assets/img/app-icon.png">
+  <meta name="theme-color" content="#042F2E">
+
+  <!-- Fonts & CSS -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+
+  <!-- FAQ Schema Structured Data for Google Search -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "How does QualityTime peer-to-peer (P2P) calling work?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "QualityTime uses WebRTC to establish a direct, encrypted audio and video stream between you and your contact's phone. Unlike traditional calling apps that route your video through corporate servers, QualityTime connects device-to-device."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is installing the QualityTime APK safe for my Android device?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes, 100%. The QualityTime APK is built directly from clean source code and hosted on verified GitHub Releases. When Android says 'File might be harmful', this is a generic notice shown for any APK downloaded outside Google Play."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does QualityTime record or store my calls or messages?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. Voice and video streams are encrypted end-to-end via DTLS-SRTP and flow directly between peers. There is no central media recording server, meaning no one can eavesdrop or store your intimate moments."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What is Extreme 1080p 60 FPS mode?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Extreme Mode unlocks studio-grade 60 frames-per-second video calling at bitrates up to 8 Mbps with 128 kbps Opus stereo audio for devices connected to high-speed Wi-Fi or 5G."
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <header class="navbar">
+    <div class="container nav-container">
+      <a href="index.html" class="brand">
+        <img src="assets/img/app-icon.png" alt="QualityTime Logo" class="brand-icon">
+        <span class="brand-name">Quality<span>Time</span></span>
+      </a>
+
+      <nav>
+        <ul class="nav-links">
+          <li><a href="index.html" class="nav-link">Home</a></li>
+          <li><a href="features.html" class="nav-link">Features</a></li>
+          <li><a href="download.html" class="nav-link">Download</a></li>
+          <li><a href="changelog.html" class="nav-link">Changelog</a></li>
+          <li><a href="faq.html" class="nav-link active">FAQ & Guide</a></li>
+          <li><a href="privacy.html" class="nav-link">Privacy</a></li>
+        </ul>
+      </nav>
+
+      <div class="nav-cta">
+        <a href="download.html" class="btn btn-primary btn-sm dyn-apk-link">
+          <span>Get APK <strong class="dyn-version">v0.8.4</strong></span>
+        </a>
+        <button class="menu-toggle" aria-label="Toggle navigation menu">☰</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- FAQ Hero -->
+  <section class="hero" style="padding-bottom: 30px;">
+    <div class="container">
+      <div class="pill">
+        <span class="pulse-dot"></span>
+        <span>HELP & KNOWLEDGE BASE</span>
+      </div>
+      <h1 class="hero-title">Frequently Asked Questions</h1>
+      <p class="hero-subtitle">
+        Everything you need to know about peer-to-peer calling, APK installation, privacy encryption, and bandwidth modes.
+      </p>
+    </div>
+  </section>
+
+  <!-- FAQ Accordion List -->
+  <section class="container" style="padding-bottom: 90px; max-width: 860px;">
+    <div class="faq-list">
+
+      <!-- Item 1 -->
+      <div class="faq-item open">
+        <button class="faq-question">
+          <span>How does QualityTime peer-to-peer (P2P) calling work?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <p>Traditional messaging apps route your video and audio data through large central servers that decode, monitor, and relay packets. QualityTime uses the standardized WebRTC protocol to negotiate a direct peer tunnel between your phone and your recipient's phone.</p>
+          <p style="margin-top: 10px;">Once the handshake finishes, all audio, video, and file packets stream directly between both devices. This drastically cuts latency (lag) and guarantees unmatched privacy.</p>
+        </div>
+      </div>
+
+      <!-- Item 2 -->
+      <div class="faq-item">
+        <button class="faq-question">
+          <span>Is installing the APK file safe for my Android device?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <p><strong>Yes, completely safe.</strong> The APK provided on this site is directly compiled from clean Flutter source and uploaded to official GitHub Releases. When your browser shows <em>"File might be harmful"</em>, this is Android's standard warning for any installation from outside Google Play. You can safely tap <strong>"Download anyway"</strong> and allow installation from your browser.</p>
+        </div>
+      </div>
+
+      <!-- Item 3 -->
+      <div class="faq-item">
+        <button class="faq-question">
+          <span>Are my calls recorded or monitored by QualityTime?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <p><strong>Never.</strong> QualityTime does not operate media recording servers. Media streams are encrypted with DTLS-SRTP using cryptographic keys that only exist in volatile device memory during the active call. When a call ends, the session keys vanish permanently.</p>
+        </div>
+      </div>
+
+      <!-- Item 4 -->
+      <div class="faq-item">
+        <button class="faq-question">
+          <span>How does the in-app automatic updater work?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <p>QualityTime includes a built-in background updater service that periodically queries our public GitHub manifest file (<code>update.json</code>). When a newer build code is released, the app prompts you with the changelog and allows you to download and update seamlessly without having to re-visit the browser.</p>
+        </div>
+      </div>
+
+      <!-- Item 5 -->
+      <div class="faq-item">
+        <button class="faq-question">
+          <span>What is Extreme 1080p 60 FPS Mode?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <p>Extreme Mode is engineered for users with high-speed Wi-Fi or 5G connections. It pushes the video encoder to 60 frames per second at up to 8.0 Mbps bitrate alongside 128 kbps Opus stereo audio. This produces an ultra-smooth, lifelike video call experience with zero blur during fast motion.</p>
+        </div>
+      </div>
+
+      <!-- Item 6 -->
+      <div class="faq-item">
+        <button class="faq-question">
+          <span>What should I do if my mobile internet connection is slow?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <p>Go to in-app <strong>Settings &rarr; Data Saver</strong> and select <strong>Low Mode</strong>. Low Mode drops video bitrate to 150 kbps and audio to 16 kbps Opus, ensuring crisp, unbroken audio calls even on crowded 2G/3G networks or while traveling.</p>
+        </div>
+      </div>
+
+      <!-- Item 7 -->
+      <div class="faq-item">
+        <button class="faq-question">
+          <span>Why does QualityTime need lockscreen and CallKit permissions?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <p>Modern Android power-saving algorithms frequently kill background processes. By integrating with Android's native CallKit notification system, QualityTime can wake your phone when you receive an incoming call and display a full-screen ringing UI just like a cellular phone call.</p>
+        </div>
+      </div>
+
+      <!-- Item 8 -->
+      <div class="faq-item">
+        <button class="faq-question">
+          <span>When will Windows, macOS, or Web versions be available?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <p>Desktop (Windows 64-bit, macOS Apple Silicon/Intel) and Web Browser versions are in active testing. Because QualityTime is developed with Flutter and WebRTC, the desktop and web engines share the same underlying architecture and will launch in subsequent public releases.</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Still need help card -->
+    <div class="glass-card" style="text-align: center; padding: 40px; margin-top: 50px;">
+      <h3 style="margin-bottom: 12px;">Still have questions or found a bug?</h3>
+      <p class="subtle" style="margin-bottom: 24px;">Submit an issue or join discussions on our official GitHub repository.</p>
+      <a href="https://github.com/Sankha07x/qualitytime-releases/issues" target="_blank" rel="noopener" class="btn btn-secondary">
+        Open GitHub Issues ↗
+      </a>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <div class="brand">
+            <img src="assets/img/app-icon.png" alt="QualityTime Logo" class="brand-icon">
+            <span class="brand-name">Quality<span>Time</span></span>
+          </div>
+          <p>Low-bandwidth, high-quality P2P voice & video calling. Direct peer encryption with no central recording server.</p>
+        </div>
+
+        <div class="footer-col">
+          <h4>Navigation</h4>
+          <ul class="footer-links">
+            <li><a href="index.html" class="footer-link">Home</a></li>
+            <li><a href="features.html" class="footer-link">Features</a></li>
+            <li><a href="download.html" class="footer-link">Download</a></li>
+            <li><a href="changelog.html" class="footer-link">Changelog</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Support & Docs</h4>
+          <ul class="footer-links">
+            <li><a href="faq.html" class="footer-link">FAQ & Help</a></li>
+            <li><a href="download.html#install-guide" class="footer-link">How to Install APK</a></li>
+            <li><a href="privacy.html" class="footer-link">Privacy Policy</a></li>
+            <li><a href="terms.html" class="footer-link">Terms of Service</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Releases</h4>
+          <ul class="footer-links">
+            <li><a href="https://github.com/Sankha07x/qualitytime-releases" target="_blank" rel="noopener" class="footer-link">GitHub Repository ↗</a></li>
+            <li><a href="https://github.com/Sankha07x/qualitytime-releases/releases" target="_blank" rel="noopener" class="footer-link">GitHub Releases ↗</a></li>
+            <li><a href="https://raw.githubusercontent.com/Sankha07x/qualitytime-releases/main/update.json" target="_blank" rel="noopener" class="footer-link">update.json Feed ↗</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>&copy; 2026 QualityTime. All rights reserved. Built with WebRTC & Flutter.</div>
+        <div style="display: flex; gap: 20px;">
+          <a href="privacy.html" class="footer-link">Privacy</a>
+          <a href="terms.html" class="footer-link">Terms</a>
+          <a href="sitemap.xml" class="footer-link">Sitemap</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/js/main.js"></script>
+</body>
+</html>

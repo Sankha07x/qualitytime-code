@@ -58,6 +58,27 @@ class _ChatInputBarState extends State<ChatInputBar> {
 
   String _fmt(int v) => '${v ~/ 60}:${(v % 60).toString().padLeft(2, '0')}';
 
+  static const _quick = ['Call me later', 'OK 👍', 'Thanks', "Can't talk now", 'On my way'];
+
+  Widget _quickReplies() {
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.only(bottom: 6),
+        itemCount: _quick.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) => ActionChip(
+          label: Text(_quick[i]),
+          onPressed: () async {
+            final err = await widget.onSendText(_quick[i]);
+            if (err != null && mounted) widget.onMessage(err);
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _sendText() async {
     final t = _ctrl.text;
     if (t.trim().isEmpty) return;
@@ -179,7 +200,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 child: Text('Sending voice message...',
                     style: TextStyle(color: s.onSurfaceVariant)),
               ),
-            Glass(
+            if (!_recording && !_hasText) _quickReplies(),
+        Glass(
               blur: 12,
               tint: s.surface,
               opacity: 0.55,

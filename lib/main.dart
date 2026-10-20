@@ -18,6 +18,7 @@ import 'core/notifications/push_notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'utils/settings/app_settings.dart';
 import 'utils/glass.dart';
+import 'utils/splash_screen.dart';
 
 final GlobalKey<NavigatorState> appNavKey = GlobalKey<NavigatorState>();
 
@@ -114,6 +115,10 @@ class _StartupGateState extends State<_StartupGate> {
   bool _signingIn = false;
   String? _loginMsg;
 
+  // Opening animation: only on a normal open, never for a call wake-up.
+  bool _splash = CallNotification.pendingCall == null &&
+      CallNotification.pendingAction == null;
+
   StreamSubscription<AuthState>? _authSub;
 
   @override
@@ -196,6 +201,19 @@ class _StartupGateState extends State<_StartupGate> {
 
   @override
   Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _gate(),
+        if (_splash)
+          SplashScreen(onDone: () {
+            if (mounted) setState(() => _splash = false);
+          }),
+      ],
+    );
+  }
+
+  Widget _gate() {
     final k = _error != null
         ? 'e'
         : _needsLogin

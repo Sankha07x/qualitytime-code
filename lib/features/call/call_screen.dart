@@ -1,4 +1,5 @@
 import 'dart:ui' show ImageFilter;
+import 'dart:math' show Random;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../utils/user_avatar.dart';
@@ -19,6 +20,7 @@ import '../groups/group_controller.dart';
 import '../groups/groups_screen.dart';
 import '../groups/group_call_screen.dart';
 import '../../core/signaling/group_ring_service.dart';
+import 'package:audioplayers/audioplayers.dart' as ap;
 
 class CallScreen extends StatefulWidget {
   final CallController controller;
@@ -49,9 +51,17 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   final _localRenderer = RTCVideoRenderer();
   final _remoteRenderer = RTCVideoRenderer();
+  final _holdPlayer = ap.AudioPlayer();
   bool _speakerOn = false;
   bool _pip = false;
   bool _frontCamera = true;
+  String? _roomId;
+  String _roomName = 'Call';
+  String _roomEmoji = '📞';
+  int _roomColor = 0xFF0D9488;
+  String _roomMode = 'friends';
+  bool _roomVideo = false;
+  GroupController? _roomGc;
   final _noHint = ValueNotifier<String?>(null);
   static const _pipChannel = MethodChannel('qt/pip');
 
@@ -63,11 +73,13 @@ class _CallScreenState extends State<CallScreen> {
       if (!mounted) return;
       if (c.method == 'pip') {
         setState(() => _pip = c.arguments == true);
+        if (c.arguments == true) _sendPipState();
       } else if (c.method == 'pipAction') {
         _pipAction(c.arguments?.toString() ?? '');
       }
     });
     widget.controller.phase.addListener(_syncPip);
+    widget.controller.remoteOnHold.addListener(_syncHoldSound);
     widget.controller.groupInvite.addListener(_onGroupInvite);
     _loadTint();
     WidgetsBinding.instance.addPostFrameCallback((_) => _onGroupInvite());
@@ -76,7 +88,34 @@ class _CallScreenState extends State<CallScreen> {
     _init();
   }
 
+  Future<void> _syncHoldSound() async {
+    final on = widget.controller.remoteOnHold.value;
+    try {
+      if (on) {
+        final id = AppSettings.holdTone.value;
+        if (id == 'off') return;
+        await _holdPlayer.setReleaseMode(ap.ReleaseMode.loop);
+        await _holdPlayer.play(AppSettings.sourceFor(id), volume: 0.5);
+      } else {
+        await _holdPlayer.stop();
+      }
+    } catch (_) {}
+  }
+
+  void _sendPipState() {
+    final c = widget.controller;
+    _pipChannel.invokeMethod('pipState', {
+      'mic': c.micEnabled,
+      'cam': c.mediaManager.hasVideo && c.cameraEnabled,
+    }).catchError((_) {});
+  }
+
   Future<void> _pipAction(String a) async {
+    await _pipActionOld(a);
+    _sendPipState();
+  }
+
+  Future<void> _pipActionOld(String a) async {
     final c = widget.controller;
     if (a == 'mute') {
       c.toggleMic();
@@ -200,6 +239,13 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _toggleSpeaker() async {
+    await _toggleSpeakerOld();
+    try {
+      await _pipChannel.invokeMethod('speaker', _speakerOn);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleSpeakerOld() async {
     _speakerOn = !_speakerOn;
     try {
       await Helper.setSpeakerphoneOn(_speakerOn);
@@ -309,6 +355,43 @@ class _CallScreenState extends State<CallScreen> {
     }
     final picked = await pickFriends(context, cc, exclude: {peer});
     if (picked == null || picked.isEmpty || !mounted) return;
+    final r = Random.secure();
+    final rid = 'call_'
+        '${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}'
+        '${r.nextInt(1 << 30).toRadixString(36)}'
+        '${r.nextInt(1 << 30).toRadixString(36)}';
+    final video = widget.controller.videoActive.value;
+    GroupRinger.ring(
+      groupId: rid,
+      groupName: 'Call',
+      emoji: '📞',
+      color: 0xFF0D9488,
+      mode: 'friends',
+      members: [peer, ...picked],
+      video: video,
+      fromUid: cc.myUid,
+      only: picked,
+    );
+    await widget.controller.sendGroupInvite({
+      'gid': rid,
+      'name': 'Call',
+      'emoji': '📞',
+      'color': 0xFF0D9488,
+      'mode': 'friends',
+      'video': video,
+    });
+    await _goGroup(rid, 'Call', '📞', 0xFF0D9488, 'friends', video);
+  }
+
+  Future<void> _addParticipantOld() async {
+    final cc = ContactController.current;
+    final peer = _peerUid;
+    if (cc == null || peer.isEmpty) {
+      _snackMsg('Cannot add people to this call.');
+      return;
+    }
+    final picked = await pickFriends(context, cc, exclude: {peer});
+    if (picked == null || picked.isEmpty || !mounted) return;
     final t = DateTime.now();
     final hh = t.hour.toString().padLeft(2, '0');
     final mm = t.minute.toString().padLeft(2, '0');
@@ -362,6 +445,26 @@ class _CallScreenState extends State<CallScreen> {
     final cc = ContactController.current;
     if (_closing || cc == null || gid.isEmpty) return;
     _closing = true;
+    widget.controller.silentEnd = true;
+    await widget.controller.endCall(notifyPeer: false);
+    if (_pip) _pipChannel.invokeMethod('leave').catchError((_) {});
+    if (!mounted) return;
+    setState(() {
+      _roomGc = GroupController(cc.myUid);
+      _roomName = name;
+      _roomEmoji = emoji;
+      _roomColor = color;
+      _roomMode = mode;
+      _roomVideo = video;
+      _roomId = gid;
+    });
+  }
+
+  Future<void> _goGroupOld(String gid, String name, String emoji, int color,
+      String mode, bool video) async {
+    final cc = ContactController.current;
+    if (_closing || cc == null || gid.isEmpty) return;
+    _closing = true;
     await widget.controller.endCall(notifyPeer: false);
     if (_pip) _pipChannel.invokeMethod('leave').catchError((_) {});
     if (!mounted) return;
@@ -399,6 +502,9 @@ class _CallScreenState extends State<CallScreen> {
     widget.controller.videoActive.removeListener(_onVideoActive);
     widget.controller.phase.removeListener(_syncPip);
     widget.controller.groupInvite.removeListener(_onGroupInvite);
+    widget.controller.remoteOnHold.removeListener(_syncHoldSound);
+    _holdPlayer.stop();
+    _holdPlayer.dispose();
     widget.controller.videoActive.removeListener(_syncPip);
     _pipChannel.setMethodCallHandler(null);
     _pipChannel.invokeMethod('setAuto', false).catchError((_) {});
@@ -412,6 +518,19 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_roomId != null) {
+      return GroupCallScreen(
+        groupId: _roomId!,
+        groupName: _roomName,
+        video: _roomVideo,
+        emoji: _roomEmoji,
+        color: _roomColor,
+        mode: _roomMode,
+        groupController: _roomGc!,
+        contactController: ContactController.current!,
+        myUid: ContactController.current!.myUid,
+      );
+    }
     if (_pip) return _pipView();
     return PopScope(
       canPop: false,
@@ -463,20 +582,15 @@ class _CallScreenState extends State<CallScreen> {
                       Container(color: const Color(0xFF042F2E)),
                       if (AppSettings.wallpaper.value != null &&
                           AppSettings.wallpaperOnCall.value) ...[
-                        if (AppSettings.wallpaperBlur.value)
-                          ImageFiltered(
-                            imageFilter:
-                                ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                            child: Image.file(
-                              File(AppSettings.wallpaper.value!),
-                              fit: BoxFit.cover,
-                            ),
-                          )
-                        else
-                          Image.file(
+                        RepaintBoundary(
+                          child: Image.file(
                             File(AppSettings.wallpaper.value!),
                             fit: BoxFit.cover,
+                            cacheWidth:
+                                AppSettings.wallpaperBlur.value ? 48 : 1080,
+                            filterQuality: FilterQuality.medium,
                           ),
+                        ),
                         Container(color: Colors.black45),
                       ] else ...[
                         if (has) BlurredPhoto(url: widget.photoUrl!),
@@ -898,13 +1012,6 @@ class _CallScreenState extends State<CallScreen> {
                           highlighted: _speakerOn,
                           onPressed: _toggleSpeaker,
                         ),
-                        AnimatedCallButton(
-                          icon: widget.controller.screenSharing.value
-                              ? Icons.stop_screen_share
-                              : Icons.screen_share,
-                          highlighted: widget.controller.screenSharing.value,
-                          onPressed: _toggleShare,
-                        ),
                         if (widget.controller.mediaManager.hasVideo &&
                             !widget.controller.screenSharing.value)
                           AnimatedCallButton(
@@ -918,40 +1025,37 @@ class _CallScreenState extends State<CallScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  GestureDetector(
-                    onTap: () async {
-                      await widget.controller.toggleHold();
-                      if (mounted) setState(() {});
-                    },
-                    child: Glass(
-                      blur: 14,
-                      tint: Colors.black,
-                      opacity: 0.30,
-                      borderRadius: BorderRadius.circular(24),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 10,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            widget.controller.onHold.value
-                                ? Icons.play_arrow
-                                : Icons.pause,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            widget.controller.onHold.value ? 'Resume' : 'Hold',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ],
-                      ),
+                  Glass(
+                    blur: 14,
+                    tint: Colors.black,
+                    opacity: 0.30,
+                    borderRadius: BorderRadius.circular(36),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        AnimatedCallButton(
+                          icon: widget.controller.onHold.value
+                              ? Icons.play_arrow
+                              : Icons.pause,
+                          highlighted: widget.controller.onHold.value,
+                          onPressed: () async {
+                            await widget.controller.toggleHold();
+                            if (mounted) setState(() {});
+                          },
+                        ),
+                        const SizedBox(width: 24),
+                        AnimatedCallButton(
+                          icon: widget.controller.screenSharing.value
+                              ? Icons.stop_screen_share
+                              : Icons.screen_share,
+                          highlighted: widget.controller.screenSharing.value,
+                          onPressed: _toggleShare,
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 14),

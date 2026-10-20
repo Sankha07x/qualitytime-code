@@ -86,12 +86,12 @@ class ProfileService {
 
   Future<String> uploadPhoto(Uint8List bytes) async {
     final id = _id!;
-    final path = '$id/avatar_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final path = '$id/avatar_${DateTime.now().millisecondsSinceEpoch}.png';
     final bucket = _c.storage.from('avatars');
     await bucket.uploadBinary(
       path,
       bytes,
-      fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
+      fileOptions: const FileOptions(contentType: 'image/png', upsert: true),
     );
     final url = bucket.getPublicUrl(path);
     await _c.from('profiles').update({'photo_url': url}).eq('id', id);

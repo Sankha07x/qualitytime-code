@@ -328,6 +328,16 @@ class ContactController {
           await addContact(u, names[u] ?? u);
         }
       }
+      final gone = friends.value.where((u) => !f.contains(u)).toList();
+      if (gone.isNotEmpty) {
+        final left = List<ContactModel>.from(_contactsController.value)
+          ..removeWhere((c) => gone.contains(c.uid));
+        _contactsController.value = left;
+        await _save();
+        for (final u in gone) {
+          _deleteOne(u);
+        }
+      }
       friends.value = f;
       outgoing.value = out;
       sent.value = [

@@ -16,6 +16,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.os.Bundle
 import android.util.Log
+import android.media.AudioManager
+import android.media.AudioDeviceInfo
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -27,6 +29,8 @@ class MainActivity : FlutterActivity() {
     private var receiverOn = false
     private var callUi = false
     private var screenOffOn = false
+    private var pipMic = true
+    private var pipCam = true
 
     private val screenOff = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -69,6 +73,18 @@ class MainActivity : FlutterActivity() {
         channel = ch
         ch.setMethodCallHandler { call, result ->
             when (call.method) {
+                "pipState" -> {
+                    val a = call.arguments as? Map<*, *>
+                    pipMic = (a?.get("mic") as? Boolean) ?: true
+                    pipCam = (a?.get("cam") as? Boolean) ?: true
+                    try {
+                        if (Build.VERSION.SDK_INT >= 26 && isInPictureInPictureMode) {
+                            pipParams()?.let { setPictureInPictureParams(it) }
+                        }
+                    } catch (_: Throwable) {
+                    }
+                    result.success(null)
+                }
                 "setAuto" -> {
                     auto = call.arguments as? Boolean ?: false
                     result.success(null)
@@ -76,6 +92,7 @@ class MainActivity : FlutterActivity() {
                 "callUi" -> {
                     callUi = call.arguments as? Boolean ?: false
                     allowOnLock(callUi)
+                    volumeControlStream = if (callUi) AudioManager.STREAM_VOICE_CALL else AudioManager.USE_DEFAULT_STREAM_TYPE
                     result.success(null)
                 }
                 "shareOn" -> {
@@ -115,6 +132,28 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(null)
                 }
+                "speaker" -> {
+                    try {
+                        val on = call.arguments as? Boolean ?: false
+                        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                        am.mode = AudioManager.MODE_IN_COMMUNICATION
+                        if (Build.VERSION.SDK_INT >= 31) {
+                            if (on) {
+                                val d = am.availableCommunicationDevices.firstOrNull {
+                                    it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                                }
+                                if (d != null) am.setCommunicationDevice(d)
+                            } else {
+                                am.clearCommunicationDevice()
+                            }
+                        } else {
+                            am.isSpeakerphoneOn = on
+                        }
+                    } catch (e: Throwable) {
+                        Log.w("QT_AUDIO", "speaker failed: $e")
+                    }
+                    result.success(null)
+                }
                 "leave" -> {
                     moveTaskToBack(true)
                     result.success(null)
@@ -138,8 +177,8 @@ class MainActivity : FlutterActivity() {
             .setAspectRatio(Rational(9, 16))
             .setActions(
                 listOf(
-                    act(1, "mute", R.drawable.ic_pip_mic, "Mute"),
-                    act(2, "video", R.drawable.ic_pip_video, "Camera"),
+                    act(1, "mute", if (pipMic) R.drawable.ic_pip_mic else R.drawable.ic_pip_mic_off, if (pipMic) "Mute" else "Unmute"),
+                    act(2, "video", if (pipCam) R.drawable.ic_pip_video else R.drawable.ic_pip_video_off, if (pipCam) "Camera off" else "Camera on"),
                     act(3, "end", R.drawable.ic_pip_end, "End call")
                 )
             )

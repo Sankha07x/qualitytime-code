@@ -19,6 +19,9 @@ class CallLogPanel extends StatefulWidget {
   final ValueListenable<Map<String, String>>? photos;
   final Future<String?> Function(String uid)? fetchPhoto;
 
+  /// Optional button shown beside the "Recent calls" title.
+  final Widget? action;
+
   const CallLogPanel({
     super.key,
     required this.log,
@@ -29,6 +32,7 @@ class CallLogPanel extends StatefulWidget {
     this.refresh,
     this.photos,
     this.fetchPhoto,
+    this.action,
   });
 
   @override
@@ -198,6 +202,7 @@ class _CallLogPanelState extends State<CallLogPanel>
                         ),
                       ),
                       const Spacer(),
+                      if (widget.action != null) widget.action!,
                       AnimatedRotation(
                         turns: _open ? 0.5 : 0,
                         duration: const Duration(milliseconds: 250),

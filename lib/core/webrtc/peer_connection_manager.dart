@@ -591,7 +591,7 @@ class PeerConnectionManager {
             enc.maxBitrate = VideoTuning.maxBitrate(video);
             enc.minBitrate = VideoTuning.minBitrate(video);
             final fps = VideoTuning.fps(video);
-            enc.maxFramerate = _sharing && fps > 30 ? 30 : fps;
+            enc.maxFramerate = _sharing && video != QualityLevel.low ? 60 : fps;
             enc.scaleResolutionDownBy =
                 _sharing || video == QualityLevel.extreme
                     ? VideoTuning.scale(video)

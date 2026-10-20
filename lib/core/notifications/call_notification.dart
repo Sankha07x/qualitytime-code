@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/app_config.dart';
 import '../signaling/incoming_call_service.dart';
 import 'dart:io';
+import 'package:audioplayers/audioplayers.dart' as ap;
 import 'dart:ui' show Color, DartPluginRegistrant;
 
 /// Incoming-call notification (Answer / Decline) and the ongoing-call
@@ -60,6 +61,7 @@ class CallNotification {
       final uid = m?['u']?.toString() ?? '';
       final session = m?['s']?.toString() ?? '';
       if (uid.isEmpty || session.isEmpty) return;
+      await _mark(0);
       await _declineHttp(uid, session);
       try {
         await Supabase.initialize(
@@ -213,15 +215,20 @@ class CallNotification {
     final video = data['call_type']?.toString() == 'video';
     await _mark(DateTime.now().millisecondsSinceEpoch);
     var tone = 'system';
+    String? customPath;
     try {
       final p = await SharedPreferences.getInstance();
       await p.reload();
       tone = p.getString('set_incoming_tone') ?? 'system';
+      customPath = p.getString('set_incoming_custom');
     } catch (_) {}
     const builtIn = {
       'classic', 'chime', 'marimba', 'digital', 'pulse', 'bell', 'soft',
     };
     final useRaw = builtIn.contains(tone);
+    final custom = tone == 'custom' &&
+        customPath != null &&
+        File(customPath).existsSync();
     var accent = 0xFF009688;
     try {
       final p = await SharedPreferences.getInstance();
@@ -234,7 +241,9 @@ class CallNotification {
       video ? 'Incoming video call' : 'Incoming voice call',
       NotificationDetails(
         android: AndroidNotificationDetails(
-          useRaw ? 'incoming_calls_v3_$tone' : 'incoming_calls_v2',
+          custom
+              ? 'incoming_calls_silent_v1'
+              : (useRaw ? 'incoming_calls_v3_$tone' : 'incoming_calls_v2'),
           'Incoming calls',
           channelDescription: 'Rings when someone calls you',
           importance: Importance.max,
@@ -248,8 +257,8 @@ class CallNotification {
           ongoing: true,
           timeoutAfter: 30000,
           visibility: NotificationVisibility.public,
-          playSound: true,
-          sound: useRaw
+          playSound: !custom,
+          sound: custom ? null : useRaw
               ? RawResourceAndroidNotificationSound('tone_$tone')
               : const UriAndroidNotificationSound(
                   'content://settings/system/ringtone'),
@@ -273,6 +282,41 @@ class CallNotification {
         'p': data['caller_photo']?.toString() ?? '',
       }),
     );
+  }
+
+  /// Your own ringtone while the app is closed. Plays at most 30 seconds
+  /// and stops when the call is answered, declined or gone.
+  static Future<void> playCustomRingtone() async {
+    ap.AudioPlayer? player;
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.reload();
+      if ((p.getString('set_incoming_tone') ?? 'system') != 'custom') return;
+      final path = p.getString('set_incoming_custom');
+      if (path == null || !File(path).existsSync()) return;
+      player = ap.AudioPlayer();
+      await player.setAudioContext(ap.AudioContext(
+        android: ap.AudioContextAndroid(
+          contentType: ap.AndroidContentType.sonification,
+          usageType: ap.AndroidUsageType.notificationRingtone,
+          audioFocus: ap.AndroidAudioFocus.gainTransientMayDuck,
+        ),
+      ));
+      await player.setReleaseMode(ap.ReleaseMode.loop);
+      await player.play(ap.DeviceFileSource(path), volume: 1.0);
+      for (var i = 0; i < 60; i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        await p.reload();
+        if ((p.getInt(_kRing) ?? 0) == 0) break;
+      }
+    } catch (e) {
+      debugPrint('RING custom: $e');
+    } finally {
+      try {
+        await player?.stop();
+        await player?.dispose();
+      } catch (_) {}
+    }
   }
 
   static Future<void> cancel() async {

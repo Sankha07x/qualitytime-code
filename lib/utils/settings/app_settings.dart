@@ -31,6 +31,7 @@ class AppSettings {
   static final wallpaperBlur = ValueNotifier<bool>(false);
   static final tone = ValueNotifier<String>('classic');
   static final incomingTone = ValueNotifier<String>('system');
+  static final holdTone = ValueNotifier<String>('soft');
   static String? customTonePath;
   static String? customToneName;
   static String? customIncomingPath;
@@ -60,6 +61,7 @@ class AppSettings {
       var it = p.getString('set_incoming_tone') ?? 'system';
       if (it == 'custom' && customIncomingPath == null) it = 'system';
       incomingTone.value = it;
+      holdTone.value = p.getString('set_hold_tone') ?? 'soft';
     } catch (e) {
       debugPrint('Settings load failed: $e');
     }
@@ -123,6 +125,12 @@ class AppSettings {
     incomingTone.value = id;
     final p = await SharedPreferences.getInstance();
     await p.setString('set_incoming_tone', id);
+  }
+
+  static Future<void> setHoldTone(String id) async {
+    holdTone.value = id;
+    final p = await SharedPreferences.getInstance();
+    await p.setString('set_hold_tone', id);
   }
 
   static Future<void> setTone(String id) async {

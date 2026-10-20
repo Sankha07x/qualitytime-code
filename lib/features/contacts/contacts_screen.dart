@@ -23,7 +23,9 @@ import '../call/call_log/call_log_controller.dart';
 import '../call/call_log/call_log_panel.dart';
 import '../../core/presence/presence_service.dart';
 import '../../utils/net_status.dart';
-import 'friend_requests_screen.dart';
+import 'notifications_screen.dart';
+import '../chat/chat_inbox_screen.dart';
+import '../chat/chat_screen.dart';
 import 'dart:io' show File;
 import '../../utils/settings/app_settings.dart';
 import 'dart:ui' show ImageFilter;
@@ -61,6 +63,7 @@ class _ContactsScreenState extends State<ContactsScreen>
 
   bool _busy = false;
   String? _incomingSession;
+  bool _waiting = false;
   String? _activeSession;
 
   // Simultaneous calls: who I'm calling, and a ring I'll answer instead.
@@ -79,20 +82,41 @@ class _ContactsScreenState extends State<ContactsScreen>
 
   // Unread chat messages per friend (waiting in the cloud).
   final _unread = ValueNotifier<Map<String, int>>({});
+  final _preview = ValueNotifier<Map<String, String>>({});
   RealtimeChannel? _chatCh;
 
+  /// Tells senders their messages reached this phone (second grey tick).
+  Future<void> _markDelivered() async {
+    try {
+      await Supabase.instance.client
+          .from('chat_messages')
+          .update({'delivered_at': DateTime.now().toUtc().toIso8601String()})
+          .eq('to_uid', widget.myUid)
+          .isFilter('delivered_at', null);
+    } catch (_) {}
+  }
+
   Future<void> _loadUnread() async {
+    _markDelivered();
     try {
       final rows = await Supabase.instance.client
           .from('chat_messages')
-          .select('from_uid')
-          .eq('to_uid', widget.myUid);
+          .select('from_uid, kind, body')
+          .eq('to_uid', widget.myUid)
+          .neq('kind', 'delete')
+          .isFilter('read_at', null)
+          .order('created_at');
       final m = <String, int>{};
+      final pv = <String, String>{};
       for (final r in rows as List) {
         final u = r['from_uid'] as String;
         m[u] = (m[u] ?? 0) + 1;
+        pv[u] = r['kind'] == 'file' ? '📎 File' : (r['body'] ?? '').toString();
       }
-      if (mounted) _unread.value = m;
+      if (mounted) {
+        _preview.value = pv;
+        _unread.value = m;
+      }
     } catch (_) {}
   }
 
@@ -293,6 +317,7 @@ class _ContactsScreenState extends State<ContactsScreen>
     _presence.dispose();
     _chatCh?.unsubscribe();
     _unread.dispose();
+    _preview.dispose();
     _ringSub?.cancel();
     _cancelSub?.cancel();
     _gringSub?.cancel();
@@ -366,6 +391,72 @@ class _ContactsScreenState extends State<ContactsScreen>
     return uid.length > 8 ? uid.substring(0, 8) : uid;
   }
 
+  /// A second person calls while I am on a call: the first call goes on
+  /// hold, the new call rings, and the first call comes back when it ends.
+  Future<void> _answerWaiting(IncomingCall call, CallController first) async {
+    _waiting = true;
+    final wasHeld = first.onHold.value;
+    try {
+      if (!await widget.contactController.isFriend(call.fromUid)) {
+        _service.sendBusy(toUid: call.fromUid, sessionId: call.sessionId);
+        return;
+      }
+      if (!mounted) return;
+      _incomingSession = call.sessionId;
+      _service.sendRinging(toUid: call.fromUid, sessionId: call.sessionId);
+      if (!kIsWeb) CallNotification.cancel();
+      if (!wasHeld) await first.toggleHold();
+      final photo = widget.contactController.photos.value[call.fromUid];
+      final accepted = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => IncomingCallScreen(
+            photoUrl: photo,
+            callerName: _nameFor(call.fromUid),
+            video: call.video,
+          ),
+        ),
+      );
+      _incomingSession = null;
+      if (accepted == true && mounted) {
+        final controller = CallController();
+        await _runCallInner(
+          controller,
+          name: _nameFor(call.fromUid),
+          photo: photo,
+          outgoing: false,
+          sessionId: call.sessionId,
+          video: call.video,
+        );
+        _logCall(
+          uid: call.fromUid,
+          outgoing: false,
+          video: call.video,
+          result: CallResult.answered,
+          seconds: controller.connectedSeconds,
+        );
+      } else {
+        _logCall(
+          uid: call.fromUid,
+          outgoing: false,
+          video: call.video,
+          result: _cancelledSession == call.sessionId
+              ? CallResult.missed
+              : CallResult.declined,
+        );
+        _service.sendDecline(toUid: call.fromUid, sessionId: call.sessionId);
+      }
+    } finally {
+      _incomingSession = null;
+      _cancelledSession = null;
+      _waiting = false;
+      if (!wasHeld &&
+          first.phase.value == CallPhase.active &&
+          first.onHold.value) {
+        await first.toggleHold();
+      }
+    }
+  }
+
   Future<void> _onRing(IncomingCall call) async {
     // Both called at the same moment: the higher UID quietly answers.
     if (_busy &&
@@ -391,6 +482,19 @@ class _ContactsScreenState extends State<ContactsScreen>
     if (_busy) {
       if (call.sessionId == _activeSession) return;
       if (call.fromUid != _callingUid) {
+        if (_waiting) {
+          if (call.sessionId != _incomingSession) {
+            _service.sendBusy(toUid: call.fromUid, sessionId: call.sessionId);
+          }
+          return;
+        }
+        final run = ActiveCall.running;
+        if (run != null &&
+            run.phase.value == CallPhase.active &&
+            _incomingSession == null) {
+          _answerWaiting(call, run);
+          return;
+        }
         _service.sendBusy(toUid: call.fromUid, sessionId: call.sessionId);
         if (!kIsWeb) CallKitService.instance.endCall(call.sessionId);
       }
@@ -869,11 +973,47 @@ class _ContactsScreenState extends State<ContactsScreen>
   void _openRequests() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => FriendRequestsScreen(
+        builder: (_) => NotificationsScreen(
+          unread: _unread,
+          preview: _preview,
+          nameFor: _nameFor,
+          onOpenChat: _openChatFor,
+          onOpenAdd: _openAddContact,
           contactController: widget.contactController,
         ),
       ),
     );
+  }
+
+void _openInbox() {
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute(
+            builder: (_) => ChatInboxScreen(
+              contactController: widget.contactController,
+              myUid: widget.myUid,
+            ),
+          ),
+        )
+        .then((_) => _loadUnread());
+  }
+
+  void _openChatFor(String uid) {
+    final c = widget.contactController.contacts.value
+        .where((x) => x.uid == uid)
+        .firstOrNull;
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute(
+            builder: (_) => ChatScreen(
+              contactName: c?.displayName ?? _nameFor(uid),
+              contactUid: uid,
+              myUid: widget.myUid,
+              photoUrl: widget.contactController.photos.value[uid],
+            ),
+          ),
+        )
+        .then((_) => _loadUnread());
   }
 
   void _openAddContact() {
@@ -928,7 +1068,7 @@ class _ContactsScreenState extends State<ContactsScreen>
         final s = Theme.of(context).colorScheme;
         return Glass(
           margin: const EdgeInsets.all(12),
-          blur: 10,
+          blur: 0,
           tint: s.surface,
           opacity: 0.45,
           borderRadius: BorderRadius.circular(18),
@@ -947,7 +1087,7 @@ class _ContactsScreenState extends State<ContactsScreen>
         final s = Theme.of(context).colorScheme;
         return Glass(
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          blur: 10,
+          blur: 0,
           tint: s.surface,
           opacity: 0.45,
           borderRadius: BorderRadius.circular(18),
@@ -1017,7 +1157,25 @@ class _ContactsScreenState extends State<ContactsScreen>
           );
         },
       ),
-      subtitle: Text(contact.uid),
+      subtitle: ValueListenableBuilder<Map<String, int>>(
+        valueListenable: _unread,
+        builder: (context, u, _) {
+          final n = u[contact.uid] ?? 0;
+          if (n == 0) return Text(contact.uid);
+          final pv = _preview.value[contact.uid] ?? '';
+          return Text(
+            pv.isEmpty
+                ? 'New message from ${contact.displayName}'
+                : 'New message: $pv',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          );
+        },
+      ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1051,22 +1209,34 @@ class _ContactsScreenState extends State<ContactsScreen>
         ),
         title: const Text('Contacts'),
         actions: [
+          AnimatedBuilder(
+            animation: Listenable.merge(
+                [widget.contactController.incoming, _unread]),
+            builder: (context, _) {
+              final n = widget.contactController.incoming.value.length +
+                  _unread.value.length;
+              return IconButton(
+                tooltip: 'Notifications',
+                onPressed: _openRequests,
+                icon: Badge(
+                  isLabelVisible: n > 0,
+                  label: Text('$n'),
+                  child: const Icon(Icons.notifications_none),
+                ),
+              );
+            },
+          ),
           ValueListenableBuilder<List<Map<String, String>>>(
             valueListenable: widget.contactController.incoming,
             builder: (context, list, _) => IconButton(
-              tooltip: 'Friend requests',
-              onPressed: _openRequests,
+              tooltip: 'Add friend',
+              onPressed: _openAddContact,
               icon: Badge(
                 isLabelVisible: list.isNotEmpty,
                 label: Text('${list.length}'),
-                child: const Icon(Icons.notifications_none),
+                child: const Icon(Icons.person_add),
               ),
             ),
-          ),
-          IconButton(
-            tooltip: 'Add friend',
-            icon: const Icon(Icons.person_add),
-            onPressed: _openAddContact,
           ),
           IconButton(
             tooltip: 'Groups',
@@ -1101,16 +1271,17 @@ class _ContactsScreenState extends State<ContactsScreen>
               ),
             );
           } else {
-            final img = Image.file(File(wp), fit: BoxFit.cover);
+            final blurOn = AppSettings.wallpaperBlur.value;
+            final img = Image.file(
+              File(wp),
+              fit: BoxFit.cover,
+              cacheWidth: blurOn ? 48 : 1080,
+              filterQuality: FilterQuality.medium,
+            );
             bg = Stack(
               fit: StackFit.expand,
               children: [
-                AppSettings.wallpaperBlur.value
-                    ? ImageFiltered(
-                        imageFilter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                        child: img,
-                      )
-                    : img,
+                RepaintBoundary(child: img),
                 ColoredBox(color: scheme.surface.withOpacity(0.5)),
               ],
             );
@@ -1173,6 +1344,21 @@ class _ContactsScreenState extends State<ContactsScreen>
               isSaved: _isSaved,
               onAdd: _addFromLog,
               onCallBack: _callBack,
+              action: ValueListenableBuilder<Map<String, int>>(
+                valueListenable: _unread,
+                builder: (context, u, _) {
+                  final n = u.values.fold<int>(0, (a, b) => a + b);
+                  return IconButton(
+                    tooltip: 'Chats',
+                    onPressed: _openInbox,
+                    icon: Badge(
+                      isLabelVisible: n > 0,
+                      label: Text('$n'),
+                      child: const Icon(Icons.chat_bubble_outline),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ],

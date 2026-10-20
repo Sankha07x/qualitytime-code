@@ -16,6 +16,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (message.data['type'] == 'incoming_call') {
     await CallNotification.show(message.data);
     await _sendRingingAck(message.data);
+    await CallNotification.playCustomRingtone();
   }
 }
 
