@@ -62,6 +62,7 @@ class UpdateService with WidgetsBindingObserver {
   bool _dismissedSession = false;
   DateTime? _lastCheck;
   UpdateInfo? _pending;
+  final available = ValueNotifier<UpdateInfo?>(null);
 
   void start(GlobalKey<NavigatorState> nav) {
     if (_started || kIsWeb || !Platform.isAndroid) return;
@@ -115,6 +116,10 @@ class UpdateService with WidgetsBindingObserver {
       if (json == null) return;
       final current = await currentCode();
       final info = UpdateInfo.fromJson(json, current);
+      available.value = (info.versionCode > current &&
+              info.apkUrl.startsWith('https://'))
+          ? info
+          : null;
       if (info.versionCode <= current || !info.apkUrl.startsWith('https://')) {
         _pending = null;
         return;
@@ -156,6 +161,16 @@ class UpdateService with WidgetsBindingObserver {
         await snooze(info.versionCode);
       }
     });
+  }
+
+  Future<void> showNow(BuildContext ctx) async {
+    var info = available.value;
+    if (info == null) {
+      await check();
+      info = available.value;
+    }
+    if (info == null || !ctx.mounted) return;
+    await showUpdateDialog(ctx, info);
   }
 
   Future<void> snooze(int code) async {

@@ -11,6 +11,10 @@ import 'file_opener.dart';
 import 'photo_bubble.dart';
 import 'photo_bubble.dart';
 import 'voice_bubble.dart';
+import 'package:flutter/services.dart';
+import 'typing_service.dart';
+import 'typing_widgets.dart';
+import 'message_menu.dart';
 
 class _Item {
   final DateTime at;
@@ -44,16 +48,30 @@ class _ChatScreenState extends State<ChatScreen> {
   late final VoiceService _voice =
       VoiceService(myUid: widget.myUid, peerUid: widget.contactUid);
   final _player = VoicePlayerController();
+  late final TypingService _typing =
+      TypingService(myUid: widget.myUid, peerUid: widget.contactUid);
+  final _scroll = ScrollController();
+  final _showDown = ValueNotifier<bool>(false);
+  bool _searching = false;
+  String _q = '';
 
   @override
   void initState() {
     super.initState();
     _chat.start();
     _voice.start();
+    _typing.start();
+    _scroll.addListener(() {
+      final far = _scroll.hasClients && _scroll.offset > 500;
+      if (far != _showDown.value) _showDown.value = far;
+    });
   }
 
   @override
   void dispose() {
+    _typing.dispose();
+    _scroll.dispose();
+    _showDown.dispose();
     _player.dispose();
     _chat.dispose();
     // small delay so a recording in progress can be cancelled first
@@ -124,6 +142,88 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  bool _matches(ChatMessage m) {
+    if (_q.isEmpty) return true;
+    return (m.body ?? m.fileName ?? '').toLowerCase().contains(_q);
+  }
+
+  void _toggleSearch() => setState(() {
+        _searching = !_searching;
+        _q = '';
+      });
+
+  Widget _searchBox() => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: TextField(
+          autofocus: true,
+          onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
+          decoration: InputDecoration(
+            hintText: 'Search in chat',
+            prefixIcon: const Icon(Icons.search),
+            filled: true,
+            isDense: true,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(24),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+      );
+
+  Future<void> _menu(ChatMessage m) async {
+    HapticFeedback.selectionClick();
+    final c = await showMessageMenu(
+      context,
+      canCopy: m.kind == 'text',
+      mine: m.fromUid == widget.myUid,
+    );
+    if (c == 'copy') {
+      await Clipboard.setData(ClipboardData(text: m.body ?? ''));
+      _snack('Copied');
+    } else if (c == 'me') {
+      await _chat.deleteLocal(m);
+    } else if (c == 'all') {
+      final err = await _chat.deleteForEveryone(m);
+      if (err != null) _snack(err);
+    }
+  }
+
+  bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  /// Row 0 is the typing bubble (bottom). Other rows are messages.
+  Widget _row(List<_Item> items, int i) {
+    if (i == 0) {
+      return ValueListenableBuilder<bool>(
+        valueListenable: _typing.typing,
+        builder: (_, on, __) =>
+            on ? const TypingBubble() : const SizedBox(height: 4),
+      );
+    }
+    final idx = items.length - i;
+    final it = items[idx];
+    final bubble = RepaintBoundary(child: _bubble(it));
+    final newDay = idx == 0 || !_sameDay(items[idx - 1].at, it.at);
+    if (!newDay) return bubble;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [DateChip(it.at), bubble],
+    );
+  }
+
+  Widget _downFab() => ValueListenableBuilder<bool>(
+        valueListenable: _showDown,
+        builder: (_, on, __) => on
+            ? FloatingActionButton.small(
+                heroTag: 'chat_down',
+                onPressed: () => _scroll.animateTo(0,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOut),
+                child: const Icon(Icons.keyboard_arrow_down),
+              )
+            : const SizedBox.shrink(),
+      );
+
   Future<void> _delVoice(VoiceMessage m) async {
     if (!await _ask('Delete voice message?', 'It is removed for both of you.')) {
       return;
@@ -133,8 +233,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   List<_Item> _items() => [
-        for (final m in _chat.messages.value) _Item(m.createdAt, chat: m),
-        for (final v in _voice.messages.value) _Item(v.createdAt, voice: v),
+        for (final m in _chat.messages.value)
+          if (_matches(m)) _Item(m.createdAt, chat: m),
+        if (_q.isEmpty)
+          for (final v in _voice.messages.value) _Item(v.createdAt, voice: v),
       ]..sort((a, b) => a.at.compareTo(b.at));
 
   Widget _bubble(_Item it) {
@@ -170,10 +272,12 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ],
           )
-        : Text(m.body ?? '', style: TextStyle(color: fg, fontSize: 15));
+        : Text(m.body ?? '',
+            style: TextStyle(
+                color: fg, fontSize: bigEmoji(m.body) ? 34 : 15));
     return BubbleShell(
       mine: mine,
-      onLongPress: () => _delChat(m),
+      onLongPress: () => _menu(m),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -240,10 +344,24 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       extendBodyBehindAppBar: true,
+      floatingActionButton: _downFab(),
+      floatingActionButtonLocation: const DownFabLocation(),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         titleSpacing: 0,
+        actions: [
+          IconButton(
+            icon: Icon(_searching ? Icons.close : Icons.search),
+            onPressed: _toggleSearch,
+          ),
+        ],
+        bottom: _searching
+            ? PreferredSize(
+                preferredSize: const Size.fromHeight(56),
+                child: _searchBox(),
+              )
+            : null,
         title: Row(
           children: [
             UserAvatar(
@@ -253,7 +371,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(widget.contactName, overflow: TextOverflow.ellipsis),
+              child: ChatTitle(name: widget.contactName, typing: _typing),
             ),
           ],
         ),
@@ -279,10 +397,11 @@ class _ChatScreenState extends State<ChatScreen> {
                       }
                       return ListView.builder(
                         reverse: true,
+                        controller: _scroll,
                         padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: items.length,
+                        itemCount: items.length + 1,
                         itemBuilder: (_, i) =>
-                            _bubble(items[items.length - 1 - i]),
+                            _row(items, i),
                       );
                     },
                   ),
@@ -293,6 +412,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   onAttach: _attach,
                   onRecordStart: _player.stop,
                   onMessage: _snack,
+                  onTyping: _typing.setTyping,
                 ),
               ],
             ),

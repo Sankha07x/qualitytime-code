@@ -13,6 +13,7 @@ class ChatInputBar extends StatefulWidget {
   final VoidCallback onAttach;
   final VoidCallback onRecordStart;
   final void Function(String) onMessage;
+  final void Function(bool typing)? onTyping;
 
   const ChatInputBar({
     super.key,
@@ -21,6 +22,7 @@ class ChatInputBar extends StatefulWidget {
     required this.onAttach,
     required this.onRecordStart,
     required this.onMessage,
+    this.onTyping,
   });
 
   @override
@@ -42,6 +44,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
     super.initState();
     _ctrl.addListener(() {
       final h = _ctrl.text.trim().isNotEmpty;
+      widget.onTyping?.call(h);
       if (h != _hasText) setState(() => _hasText = h);
     });
   }

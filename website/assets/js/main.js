@@ -225,20 +225,63 @@ function setupAccordion() {
   });
 }
 
-// Mobile Menu Toggle
+// Mobile Menu Toggle with Full Touch & Accessibility Support
 function setupMobileMenu() {
   const toggleBtn = document.querySelector('.menu-toggle');
   const navLinks = document.querySelector('.nav-links');
 
   if (toggleBtn && navLinks) {
-    toggleBtn.addEventListener('click', () => {
-      navLinks.classList.toggle('show');
+    const closeMenu = () => {
+      navLinks.classList.remove('show');
+      toggleBtn.setAttribute('aria-expanded', 'false');
+      toggleBtn.innerHTML = '☰';
+      document.body.classList.remove('nav-open');
+    };
+
+    const openMenu = () => {
+      navLinks.classList.add('show');
+      toggleBtn.setAttribute('aria-expanded', 'true');
+      toggleBtn.innerHTML = '✕';
+      document.body.classList.add('nav-open');
+    };
+
+    toggleBtn.setAttribute('aria-expanded', 'false');
+
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = navLinks.classList.contains('show');
+      if (isOpen) {
+        closeMenu();
+      } else {
+        openMenu();
+      }
+    });
+
+    // Close when tapping on any link in the mobile drawer
+    navLinks.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        closeMenu();
+      });
     });
 
     // Close when clicking outside
     document.addEventListener('click', (e) => {
       if (!toggleBtn.contains(e.target) && !navLinks.contains(e.target)) {
-        navLinks.classList.remove('show');
+        closeMenu();
+      }
+    });
+
+    // Close on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && navLinks.classList.contains('show')) {
+        closeMenu();
+      }
+    });
+
+    // Close when window resized to desktop size
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 768 && navLinks.classList.contains('show')) {
+        closeMenu();
       }
     });
   }

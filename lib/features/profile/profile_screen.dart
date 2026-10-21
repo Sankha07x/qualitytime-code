@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import '../../utils/user_avatar.dart';
 import '../../utils/photo_viewer.dart';
 import '../../utils/photo_editor_screen.dart';
+import 'profile_widgets.dart';
 
 /// Edit own photo, name and ID. Pops with true when the ID was changed.
 class ProfileScreen extends StatefulWidget {
@@ -257,6 +258,160 @@ void _openBig() {
 
   @override
   Widget build(BuildContext context) {
+    final me = _me;
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: Colors.white,
+        title: const Text('Profile'),
+      ),
+      body: me == null
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                ProfileHeader(
+                  name: me.name,
+                  uid: me.uid,
+                  avatar: _avatar(me, cs),
+                  onCopy: () {
+                    Clipboard.setData(ClipboardData(text: me.uid));
+                    _toast('ID copied');
+                  },
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
+                  child: Column(
+                    children: [
+                      ProfileSection(
+                        title: 'DISPLAY NAME',
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+                            child: TextField(
+                              controller: _nameCtrl,
+                              maxLength: 30,
+                              textCapitalization: TextCapitalization.words,
+                              onSubmitted: (_) => _saveName(),
+                              decoration: InputDecoration(
+                                hintText: 'Your name',
+                                border: InputBorder.none,
+                                suffixIcon: IconButton(
+                                  icon: const Icon(Icons.check_circle),
+                                  color: cs.primary,
+                                  tooltip: 'Save name',
+                                  onPressed: _busy ? null : _saveName,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      ProfileSection(
+                        title: 'YOUR ID',
+                        children: [
+                          ListTile(
+                            leading: Icon(Icons.alternate_email,
+                                color: cs.primary),
+                            title: SelectableText(me.uid),
+                            subtitle: Text(me.uidChanged
+                                ? 'Already changed once'
+                                : 'You can change it one time'),
+                            trailing: me.uidChanged
+                                ? null
+                                : TextButton(
+                                    onPressed: _busy ? null : _changeId,
+                                    child: const Text('Change'),
+                                  ),
+                          ),
+                          const Divider(height: 1, indent: 16, endIndent: 16),
+                          ListTile(
+                            leading:
+                                Icon(Icons.share_outlined, color: cs.primary),
+                            title: const Text('Share my ID'),
+                            subtitle: const Text('Copies an invite message'),
+                            onTap: () {
+                              Clipboard.setData(ClipboardData(
+                                  text:
+                                      'Add me on QualityTime! My ID: ${me.uid}'));
+                              _toast('Invite copied');
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      ProfileSection(
+                        title: 'ACCOUNT',
+                        children: [
+                          ListTile(
+                            leading: const Icon(Icons.logout,
+                                color: Colors.redAccent),
+                            title: const Text('Sign out',
+                                style: TextStyle(color: Colors.redAccent)),
+                            onTap: _signOut,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _avatar(MyProfile me, ColorScheme cs) {
+    return GestureDetector(
+      onTap: _openBig,
+      child: Stack(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white,
+            ),
+            child: UserAvatar(name: me.name, photoUrl: me.photoUrl, radius: 58),
+          ),
+          if (_busy)
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.black38,
+                ),
+                child: const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+              ),
+            ),
+          Positioned(
+            right: 2,
+            bottom: 2,
+            child: GestureDetector(
+              onTap: _photoMenu,
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: cs.primary,
+                  border: Border.all(color: Colors.white, width: 3),
+                ),
+                child: Icon(Icons.camera_alt, size: 18, color: cs.onPrimary),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _oldBuild(BuildContext context) {
     final me = _me;
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(

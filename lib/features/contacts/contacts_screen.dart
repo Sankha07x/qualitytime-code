@@ -83,6 +83,7 @@ class _ContactsScreenState extends State<ContactsScreen>
   // Unread chat messages per friend (waiting in the cloud).
   final _unread = ValueNotifier<Map<String, int>>({});
   final _preview = ValueNotifier<Map<String, String>>({});
+  final _missed = ValueNotifier<List<Map<String, dynamic>>>([]);
   RealtimeChannel? _chatCh;
 
   /// Tells senders their messages reached this phone (second grey tick).
@@ -94,6 +95,45 @@ class _ContactsScreenState extends State<ContactsScreen>
           .eq('to_uid', widget.myUid)
           .isFilter('delivered_at', null);
     } catch (_) {}
+  }
+
+  Future<void> _loadMissed() async {
+    try {
+      final rows = await Supabase.instance.client
+          .from('app_notifications')
+          .select()
+          .eq('to_uid', widget.myUid)
+          .order('created_at', ascending: false)
+          .limit(30);
+      if (mounted) {
+        _missed.value = [
+          for (final r in rows as List) Map<String, dynamic>.from(r),
+        ];
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _markMissedSeen() async {
+    try {
+      await Supabase.instance.client
+          .from('app_notifications')
+          .update({'seen': true})
+          .eq('to_uid', widget.myUid)
+          .eq('seen', false);
+    } catch (_) {}
+    _loadMissed();
+  }
+
+  /// Tells the callee's phone (and Notifications page) about a missed call.
+  Future<void> _notifyMissed(String toUid, bool video) async {
+    try {
+      await Supabase.instance.client.functions.invoke(
+        'send-notify-push',
+        body: {'kind': 'missed_call', 'to_uid': toUid, 'video': video},
+      );
+    } catch (e) {
+      debugPrint('MISSED push failed: $e');
+    }
   }
 
   Future<void> _loadUnread() async {
@@ -261,7 +301,11 @@ class _ContactsScreenState extends State<ContactsScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initCover();
+    _initCover().then((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _handleOpenTap());
+    });
+    CallNotification.openListener = _handleOpenTap;
+    _loadMissed();
     CallNotification.actionListener = (a) {
       if (_incomingSession != null && mounted) {
         CallNotification.pendingAction = null;
@@ -318,6 +362,8 @@ class _ContactsScreenState extends State<ContactsScreen>
     _chatCh?.unsubscribe();
     _unread.dispose();
     _preview.dispose();
+    _missed.dispose();
+    CallNotification.openListener = null;
     _ringSub?.cancel();
     _cancelSub?.cancel();
     _gringSub?.cancel();
@@ -859,6 +905,12 @@ class _ContactsScreenState extends State<ContactsScreen>
       await _service.stopRinging(toUid: contact.uid, sessionId: sessionId);
       _callingUid = null;
       _outgoingController = null;
+      if (_yieldTo == null &&
+          controller.connectedSeconds == 0 &&
+          !wasDeclined &&
+          !controller.peerAnswered) {
+        _notifyMissed(contact.uid, video);
+      }
       if (_yieldTo == null) {
         _logCall(
           uid: contact.uid,
@@ -970,7 +1022,25 @@ class _ContactsScreenState extends State<ContactsScreen>
     }
   }
 
+  /// A chat / friend request / missed call notification was tapped.
+  void _handleOpenTap([Map<String, dynamic>? m]) {
+    final p = m ?? CallNotification.pendingOpen;
+    CallNotification.pendingOpen = null;
+    if (p == null || !mounted) return;
+    final kind = p['k']?.toString();
+    final uid = p['u']?.toString() ?? '';
+    if (kind == 'chat' && uid.isNotEmpty) {
+      _openChatFor(uid);
+    } else if (kind == 'friend_request') {
+      _openAddContact();
+    } else {
+      _openRequests();
+    }
+  }
+
   void _openRequests() {
+    _loadMissed().then((_) =>
+        Future.delayed(const Duration(seconds: 2), _markMissedSeen));
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => NotificationsScreen(
@@ -979,6 +1049,7 @@ class _ContactsScreenState extends State<ContactsScreen>
           nameFor: _nameFor,
           onOpenChat: _openChatFor,
           onOpenAdd: _openAddContact,
+          missed: _missed,
           contactController: widget.contactController,
         ),
       ),
@@ -1211,10 +1282,11 @@ void _openInbox() {
         actions: [
           AnimatedBuilder(
             animation: Listenable.merge(
-                [widget.contactController.incoming, _unread]),
+                [widget.contactController.incoming, _unread, _missed]),
             builder: (context, _) {
               final n = widget.contactController.incoming.value.length +
-                  _unread.value.length;
+                  _unread.value.length +
+                  _missed.value.where((m) => m['seen'] != true).length;
               return IconButton(
                 tooltip: 'Notifications',
                 onPressed: _openRequests,

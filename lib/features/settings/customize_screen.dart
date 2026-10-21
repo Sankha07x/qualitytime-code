@@ -7,7 +7,8 @@ import 'colour_picker_sheet.dart';
 import 'effects_screen.dart';
 
 class CustomizeScreen extends StatefulWidget {
-  const CustomizeScreen({super.key});
+  const CustomizeScreen({super.key, this.callMode = false});
+  final bool callMode;
 
   @override
   State<CustomizeScreen> createState() => _CustomizeScreenState();
@@ -203,10 +204,13 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Customize')),
+      appBar: AppBar(
+        title: Text(widget.callMode ? 'Call customization' : 'App customization'),
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
         children: [
+          if (widget.callMode)
           Padding(
             padding: const EdgeInsets.only(top: 12),
             child: ListTile(
@@ -222,7 +226,8 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
               ),
             ),
           ),
-          _section('Accent colour'),
+          if (!widget.callMode) _section('Accent colour'),
+          if (!widget.callMode)
           ValueListenableBuilder<int>(
             valueListenable: AppSettings.accent,
             builder: (context, cur, _) {
@@ -279,7 +284,8 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
               );
             },
           ),
-          _section('Wallpaper'),
+          if (!widget.callMode) _section('Wallpaper'),
+          if (!widget.callMode)
           ValueListenableBuilder<String?>(
             valueListenable: AppSettings.wallpaper,
             builder: (context, wp, _) => Column(
@@ -344,12 +350,14 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
               ],
             ),
           ),
+          if (widget.callMode)
           _toneSection(
             title: 'Calling tone (what you hear while calling)',
             notifier: AppSettings.tone,
             onSelect: AppSettings.setTone,
             incoming: false,
           ),
+          if (widget.callMode)
           _toneSection(
             title: 'Incoming ringtone (when someone calls you)',
             notifier: AppSettings.incomingTone,

@@ -36,6 +36,10 @@ class CallNotification {
   /// Caller details from the notification the user tapped Answer on.
   static Map<String, dynamic>? pendingCall;
 
+  /// Chat / friend request / missed call notification that was tapped.
+  static Map<String, dynamic>? pendingOpen;
+  static void Function(Map<String, dynamic> p)? openListener;
+
   static Map<String, dynamic>? _parse(String? p) {
     try {
       final m = jsonDecode(p ?? '');
@@ -134,6 +138,12 @@ class CallNotification {
     final a = r.actionId;
     if (a == 'end') {
       endCallListener?.call();
+      return;
+    }
+    final pm = _parse(r.payload);
+    if (pm != null && pm['k'] != null && (a == null || a.isEmpty)) {
+      pendingOpen = pm;
+      openListener?.call(pm);
       return;
     }
     if (r.payload == 'ongoing' && (a == null || a.isEmpty)) {
@@ -316,6 +326,45 @@ class CallNotification {
         await player?.stop();
         await player?.dispose();
       } catch (_) {}
+    }
+  }
+
+  /// Chat, missed call or friend request alert (app closed or in background).
+  static Future<void> showInfo(Map<String, dynamic> data) async {
+    try {
+      await _init();
+      final kind = data['kind']?.toString() ?? '';
+      final uid = data['from_uid']?.toString() ?? '';
+      final name = data['from_name']?.toString() ?? 'QualityTime';
+      final text = data['text']?.toString() ?? '';
+      var accent = 0xFF009688;
+      try {
+        final p = await SharedPreferences.getInstance();
+        accent = p.getInt('set_accent') ?? accent;
+      } catch (_) {}
+      final id = 10000 + ((kind + uid).hashCode & 0xFFFFF);
+      await _plugin.show(
+        id,
+        name,
+        text,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            'messages_v1',
+            'Messages and alerts',
+            channelDescription:
+                'New chats, missed calls and friend requests',
+            importance: Importance.high,
+            priority: Priority.high,
+            category: AndroidNotificationCategory.message,
+            color: Color(accent),
+            styleInformation: BigTextStyleInformation(text),
+            showWhen: true,
+          ),
+        ),
+        payload: jsonEncode({'k': kind, 'u': uid}),
+      );
+    } catch (e) {
+      debugPrint('INFO: $e');
     }
   }
 
