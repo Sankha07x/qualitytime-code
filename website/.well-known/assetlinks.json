@@ -1,0 +1,12 @@
+﻿[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.qualitytime.app",
+      "sha256_cert_fingerprints": [
+        "AB:A2:A8:70:3E:4C:52:EE:69:E1:83:61:95:86:8E:B9:01:83:8A:69:52:40:85:77:5B:70:56:EE:99:5B:87:98"
+      ]
+    }
+  }
+]
