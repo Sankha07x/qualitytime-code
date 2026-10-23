@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/app_config.dart';
 import '../signaling/incoming_call_service.dart';
 import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import 'package:audioplayers/audioplayers.dart' as ap;
 import 'dart:ui' show Color, DartPluginRegistrant;
 
@@ -16,6 +17,9 @@ import 'dart:ui' show Color, DartPluginRegistrant;
 @pragma('vm:entry-point')
 void notificationTapBackground(NotificationResponse r) {
   if (r.actionId == 'decline') CallNotification.declineInBackground(r.payload);
+  if (r.actionId == 'reply' || r.actionId == 'markread') {
+    CallNotification.quickAction(r);
+  }
 }
 
 class CallNotification {
@@ -113,6 +117,183 @@ class CallNotification {
     }
   }
 
+  static String _safeName(String s) =>
+      s.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+
+  /// Adds messages to the chat history saved on this phone.
+  static Future<void> _appendLocal(
+      String peer, List<Map<String, dynamic>> add) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final f = File('${dir.path}/chat_${_safeName(peer)}.json');
+    var list = <dynamic>[];
+    if (await f.exists()) {
+      list = jsonDecode(await f.readAsString()) as List;
+    }
+    final have = {for (final j in list) j['id'].toString()};
+    for (final a in add) {
+      if (!have.contains(a['id'].toString())) list.add(a);
+    }
+    list.sort((a, b) => DateTime.parse(a['at'].toString())
+        .compareTo(DateTime.parse(b['at'].toString())));
+    await f.writeAsString(jsonEncode(list), flush: true);
+  }
+
+  /// Saves waiting text messages from [peer] on this phone, then marks them
+  /// read in the cloud (same steps the chat screen does when it opens).
+  static Future<void> _saveIncomingText(
+      SupabaseClient db, String me, String peer) async {
+    final rows = await db
+        .from('chat_messages')
+        .select('id, body, created_at, reply_to, reply_text, reply_from')
+        .eq('from_uid', peer)
+        .eq('to_uid', me)
+        .eq('kind', 'text')
+        .isFilter('read_at', null)
+        .order('created_at');
+    final list = <Map<String, dynamic>>[];
+    for (final r in rows as List) {
+      list.add({
+        'id': r['id'],
+        'from': peer,
+        'to': me,
+        'kind': 'text',
+        'body': r['body'],
+        'fileName': null,
+        'localName': null,
+        'fileSize': null,
+        'at': DateTime.parse(r['created_at'].toString())
+            .toUtc()
+            .toIso8601String(),
+        'status': 2,
+        'rt': r['reply_to'],
+        'rx': r['reply_text'],
+        'rf': r['reply_from'],
+      });
+    }
+    if (list.isEmpty) return;
+    await _appendLocal(peer, list);
+    final now = DateTime.now().toUtc().toIso8601String();
+    for (final x in list) {
+      try {
+        await db.from('chat_messages').update({
+          'read_at': now,
+          'delivered_at': now,
+          'body': null,
+          'file_path': null,
+          'file_name': null,
+          'reply_text': null,
+        }).eq('id', x['id'] as String);
+      } catch (_) {}
+    }
+  }
+
+  /// Reply / Mark as read tapped on a chat or group-chat notification.
+  /// Works with the app closed.
+  static Future<void> quickAction(NotificationResponse r) async {
+    final isReply = r.actionId == 'reply';
+    try {
+      DartPluginRegistrant.ensureInitialized();
+      final m = _parse(r.payload);
+      if (m == null) return;
+      var text = (r.input ?? '').trim();
+      if (isReply && text.isEmpty) return;
+      if (text.length > 4000) text = text.substring(0, 4000);
+      final p = await SharedPreferences.getInstance();
+      await p.reload();
+      final key = '${r.id}|${r.actionId}|$text';
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (p.getString('quick_last') == key &&
+          now - (p.getInt('quick_last_at') ?? 0) < 8000) {
+        return; // the same tap arrived twice
+      }
+      await p.setString('quick_last', key);
+      await p.setInt('quick_last_at', now);
+      await _init();
+      try {
+        await Supabase.initialize(
+          url: AppConfig.supabaseUrl,
+          anonKey: AppConfig.supabaseAnonKey,
+        );
+      } catch (_) {}
+      final db = Supabase.instance.client;
+      for (var i = 0; i < 6 && db.auth.currentUser == null; i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      final authId = db.auth.currentUser?.id;
+      if (authId == null) throw 'not signed in';
+      final prof =
+          await db.from('profiles').select('uid').eq('id', authId).single();
+      final me = prof['uid'].toString();
+      final kind = m['k']?.toString() ?? '';
+      if (kind == 'chat') {
+        final peer = m['u']?.toString() ?? '';
+        if (peer.isEmpty) return;
+        await _saveIncomingText(db, me, peer);
+        if (isReply) {
+          final row = await db
+              .from('chat_messages')
+              .insert({
+                'from_uid': me,
+                'to_uid': peer,
+                'kind': 'text',
+                'body': text,
+              })
+              .select('id, created_at')
+              .single();
+          await _appendLocal(peer, [
+            {
+              'id': row['id'],
+              'from': me,
+              'to': peer,
+              'kind': 'text',
+              'body': text,
+              'fileName': null,
+              'localName': null,
+              'fileSize': null,
+              'at': DateTime.parse(row['created_at'].toString())
+                  .toUtc()
+                  .toIso8601String(),
+              'status': 0,
+            }
+          ]);
+        }
+      } else if (kind == 'group_chat') {
+        final gid = m['g']?.toString() ?? '';
+        if (gid.isEmpty) return;
+        if (isReply) {
+          await db.from('group_messages').insert({
+            'group_id': gid,
+            'from_uid': me,
+            'body': text,
+          });
+        }
+        await p.setInt('gread_$gid', DateTime.now().millisecondsSinceEpoch);
+      }
+      if (r.id != null) await _plugin.cancel(r.id!);
+    } catch (e) {
+      debugPrint('QUICK: $e');
+      if (isReply && r.id != null) {
+        try {
+          await _init();
+          await _plugin.show(
+            r.id!,
+            'Reply not sent',
+            'Open QualityTime and try again.',
+            const NotificationDetails(
+              android: AndroidNotificationDetails(
+                'messages_v1',
+                'Messages and alerts',
+                importance: Importance.high,
+                priority: Priority.high,
+              ),
+            ),
+            payload: r.payload,
+          );
+        } catch (_) {}
+      }
+    }
+  }
+
   static Future<ByteArrayAndroidBitmap?> _photo(String? url) async {
     if (url == null || !url.startsWith('http')) return null;
     final c = HttpClient()..connectionTimeout = const Duration(seconds: 2);
@@ -136,6 +317,10 @@ class CallNotification {
 
   static void _onResponse(NotificationResponse r) {
     final a = r.actionId;
+    if (a == 'reply' || a == 'markread') {
+      quickAction(r);
+      return;
+    }
     if (a == 'end') {
       endCallListener?.call();
       return;
@@ -335,6 +520,68 @@ class CallNotification {
       await _init();
       final kind = data['kind']?.toString() ?? '';
       final uid = data['from_uid']?.toString() ?? '';
+      final gid = data['group_id']?.toString() ?? '';
+      final name = data['from_name']?.toString() ?? 'QualityTime';
+      final text = data['text']?.toString() ?? '';
+      final video = data['video']?.toString() == 'true';
+      var accent = 0xFF009688;
+      try {
+        final p = await SharedPreferences.getInstance();
+        accent = p.getInt('set_accent') ?? accent;
+      } catch (_) {}
+      final id = 10000 + ((kind + uid + gid).hashCode & 0xFFFFF);
+      final canReply = kind == 'chat' || kind == 'group_chat';
+      await _plugin.show(
+        id,
+        name,
+        text,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            'messages_v1',
+            'Messages and alerts',
+            channelDescription:
+                'New chats, missed calls and friend requests',
+            importance: Importance.high,
+            priority: Priority.high,
+            category: AndroidNotificationCategory.message,
+            color: Color(accent),
+            styleInformation: BigTextStyleInformation(text),
+            showWhen: true,
+            timeoutAfter: kind == 'group_call' ? 600000 : null,
+            actions: canReply
+                ? const <AndroidNotificationAction>[
+                    AndroidNotificationAction(
+                      'reply',
+                      'Reply',
+                      showsUserInterface: false,
+                      cancelNotification: false,
+                      inputs: <AndroidNotificationActionInput>[
+                        AndroidNotificationActionInput(
+                            label: 'Type a message'),
+                      ],
+                    ),
+                    AndroidNotificationAction(
+                      'markread',
+                      'Mark as read',
+                      showsUserInterface: false,
+                    ),
+                  ]
+                : null,
+          ),
+        ),
+        payload: jsonEncode({'k': kind, 'u': uid, 'g': gid, 'v': video}),
+      );
+    } catch (e) {
+      debugPrint('INFO: $e');
+    }
+  }
+
+  static Future<void> _oldShowInfo(Map<String, dynamic> data) async {
+    try {
+      await _init();
+      final kind = data['kind']?.toString() ?? '';
+      final uid = data['from_uid']?.toString() ?? '';
+      final gid = data['group_id']?.toString() ?? '';
       final name = data['from_name']?.toString() ?? 'QualityTime';
       final text = data['text']?.toString() ?? '';
       var accent = 0xFF009688;
@@ -342,7 +589,7 @@ class CallNotification {
         final p = await SharedPreferences.getInstance();
         accent = p.getInt('set_accent') ?? accent;
       } catch (_) {}
-      final id = 10000 + ((kind + uid).hashCode & 0xFFFFF);
+      final id = 10000 + ((kind + uid + gid).hashCode & 0xFFFFF);
       await _plugin.show(
         id,
         name,
@@ -361,7 +608,7 @@ class CallNotification {
             showWhen: true,
           ),
         ),
-        payload: jsonEncode({'k': kind, 'u': uid}),
+        payload: jsonEncode({'k': kind, 'u': uid, 'g': gid}),
       );
     } catch (e) {
       debugPrint('INFO: $e');

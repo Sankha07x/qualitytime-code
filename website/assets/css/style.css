@@ -270,22 +270,23 @@ h4 { font-size: 1.1rem; }
   list-style: none;
 }
 
-@media (min-width: 769px) {
+@media (min-width: 1025px) {
   .nav-links {
     display: flex;
     align-items: center;
-    gap: 28px;
+    gap: 24px;
   }
 
   .nav-link {
     font-size: 0.95rem;
     font-weight: 500;
-    color: rgba(240, 253, 250, 0.85);
+    color: rgba(240, 253, 250, 0.88);
     position: relative;
     padding: 8px 0;
     min-height: 44px;
     display: inline-flex;
     align-items: center;
+    transition: color 0.2s ease;
   }
 
   .nav-link:hover, .nav-link.active {
@@ -312,13 +313,7 @@ h4 { font-size: 1.1rem; }
 .nav-cta {
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-@media (min-width: 768px) {
-  .nav-cta {
-    gap: 16px;
-  }
+  gap: 12px;
 }
 
 /* Mobile Toggle Button (Guaranteed 44x44px touch target) */
@@ -346,14 +341,14 @@ h4 { font-size: 1.1rem; }
   outline: none;
 }
 
-@media (min-width: 769px) {
+@media (min-width: 1025px) {
   .menu-toggle {
     display: none;
   }
 }
 
-/* Mobile Menu Drawer */
-@media (max-width: 768px) {
+/* Mobile Menu Drawer (Active below 1025px) */
+@media (max-width: 1024px) {
   .nav-links {
     position: fixed;
     top: 68px;
@@ -367,16 +362,23 @@ h4 { font-size: 1.1rem; }
     backdrop-filter: blur(28px);
     -webkit-backdrop-filter: blur(28px);
     flex-direction: column;
-    padding: 20px 16px 36px;
-    gap: 6px;
+    padding: 20px 20px 36px;
+    gap: 8px;
     border-bottom: 1px solid var(--border-glass);
     box-shadow: 0 25px 50px rgba(0, 0, 0, 0.85);
     z-index: 999;
   }
 
+  @media (min-width: 768px) {
+    .nav-links {
+      top: 74px;
+      max-height: calc(100vh - 74px);
+    }
+  }
+
   .nav-links.show {
     display: flex;
-    animation: drawerSlide 0.22s ease-out;
+    animation: drawerSlide 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .nav-link {
@@ -481,14 +483,28 @@ h4 { font-size: 1.1rem; }
   font-size: 1.05rem;
 }
 
-/* Nav CTA Button Behavior on Mobile (320px–480px) */
-@media (max-width: 480px) {
+/* Nav CTA Button Behavior on Mobile (below 540px) */
+@media (max-width: 540px) {
+  .nav-cta .btn-sm {
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    gap: 6px;
+    min-height: 40px;
+    border-radius: var(--radius-full);
+  }
+
+  .nav-cta .btn-sm strong {
+    display: none;
+  }
+}
+
+@media (max-width: 360px) {
   .nav-cta .btn-sm {
     padding: 0;
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-    min-height: 44px;
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    min-height: 42px;
     border-radius: 50%;
   }
 

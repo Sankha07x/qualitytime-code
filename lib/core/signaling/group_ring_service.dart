@@ -32,13 +32,11 @@ class GroupRinger {
     for (final u in targets) {
       unawaited(_send(u, data));
     }
-    // second try a few seconds later for phones that were still connecting
-    Future.delayed(const Duration(seconds: 4), () {
-      for (final u in targets) {
-        unawaited(_send(u, data));
-      }
-    });
-    if (!groupId.startsWith('call_')) unawaited(_push(groupId, video, only));
+    if (!groupId.startsWith('call_')) {
+      unawaited(_push(groupId, video, only));
+      Future.delayed(const Duration(seconds: 30),
+          () => unawaited(_notifyLive(groupId, video, only)));
+    }
   }
 
   static Future<void> _send(String toUid, Map<String, dynamic> data) async {
@@ -59,6 +57,34 @@ class GroupRinger {
       debugPrint('GROUP RING send failed: $e');
     } finally {
       await client.removeChannel(ch);
+    }
+  }
+
+  /// If the call is still going 30 s later, leave a "tap to join"
+  /// notification for people who did not answer.
+  static Future<void> _notifyLive(
+      String groupId, bool video, List<String>? only) async {
+    try {
+      final c = Supabase.instance.client;
+      final since = DateTime.now()
+          .toUtc()
+          .subtract(const Duration(seconds: 45))
+          .toIso8601String();
+      final live = await c
+          .from('live_group_calls')
+          .select('group_id')
+          .eq('group_id', groupId)
+          .gte('updated_at', since)
+          .maybeSingle();
+      if (live == null) return;
+      await c.functions.invoke('send-notify-push', body: {
+        'kind': 'group_call',
+        'group_id': groupId,
+        'video': video,
+        if (only != null) 'only': only,
+      });
+    } catch (e) {
+      debugPrint('GROUP LIVE notify failed: $e');
     }
   }
 

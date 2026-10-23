@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import '../../utils/user_avatar.dart';
 import '../../utils/photo_viewer.dart';
 import '../../utils/photo_editor_screen.dart';
+import 'package:android_intent_plus/android_intent.dart';
 import 'profile_widgets.dart';
 
 /// Edit own photo, name and ID. Pops with true when the ID was changed.
@@ -250,6 +251,25 @@ void _openBig() {
     Navigator.of(context).pop(true);
   }
 
+  static const _siteLink = 'https://qualitytime.pages.dev';
+
+  String _inviteText(String uid) =>
+      'Add me on QualityTime! My ID: $uid\nGet the app: $_siteLink';
+
+  Future<void> _shareInvite(String uid) async {
+    try {
+      await AndroidIntent(
+        action: 'android.intent.action.SEND',
+        type: 'text/plain',
+        arguments: <String, dynamic>{
+          'android.intent.extra.TEXT': _inviteText(uid),
+        },
+      ).launchChooser('Share my ID');
+    } catch (_) {
+      _toast('Sharing not available. Invite copied.');
+    }
+  }
+
   void _signOut() {
     final auth = PhoneAuthService();
     Navigator.of(context).pop();
@@ -271,6 +291,7 @@ void _openBig() {
       body: me == null
           ? const Center(child: CircularProgressIndicator())
           : ListView(
+              physics: const ClampingScrollPhysics(),
               padding: EdgeInsets.zero,
               children: [
                 ProfileHeader(
@@ -333,12 +354,12 @@ void _openBig() {
                             leading:
                                 Icon(Icons.share_outlined, color: cs.primary),
                             title: const Text('Share my ID'),
-                            subtitle: const Text('Copies an invite message'),
+                            subtitle: const Text('Share a link to QualityTime'),
                             onTap: () {
                               Clipboard.setData(ClipboardData(
                                   text:
-                                      'Add me on QualityTime! My ID: ${me.uid}'));
-                              _toast('Invite copied');
+                                      _inviteText(me.uid)));
+                              _shareInvite(me.uid);
                             },
                           ),
                         ],

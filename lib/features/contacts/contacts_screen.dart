@@ -34,6 +34,8 @@ import '../settings/settings_screen.dart';
 import '../groups/groups_screen.dart';
 import '../groups/group_controller.dart';
 import '../groups/group_call_screen.dart';
+import '../groups/group_chat_screen.dart';
+import '../groups/group_status.dart';
 import '../../utils/settings/contact_quality_prefs.dart';
 
 class ContactsScreen extends StatefulWidget {
@@ -79,6 +81,7 @@ class _ContactsScreenState extends State<ContactsScreen>
   late final PresenceService _presence;
 
   bool _wasOnline = true;
+  Timer? _groupPoll;
 
   // Unread chat messages per friend (waiting in the cloud).
   final _unread = ValueNotifier<Map<String, int>>({});
@@ -144,6 +147,7 @@ class _ContactsScreenState extends State<ContactsScreen>
           .select('from_uid, kind, body')
           .eq('to_uid', widget.myUid)
           .neq('kind', 'delete')
+          .neq('kind', 'edit')
           .isFilter('read_at', null)
           .order('created_at');
       final m = <String, int>{};
@@ -217,6 +221,10 @@ class _ContactsScreenState extends State<ContactsScreen>
     if (session.isEmpty) return;
     final uid = c['u']?.toString() ?? '';
     final video = c['v'] == true;
+    if (session.startsWith('group_')) {
+      await _answerGroupFromPush(session.substring(6), video);
+      return;
+    }
     // Voice call answered from the notification: stay in the background.
     if (!video) {
       Future.delayed(const Duration(milliseconds: 600), () {
@@ -252,6 +260,62 @@ class _ContactsScreenState extends State<ContactsScreen>
       result: CallResult.answered,
       seconds: controller.connectedSeconds,
     );
+    if (_cover) SystemNavigator.pop();
+  }
+
+  /// "Group call is running" notification tapped: join only if still live.
+  Future<void> _openLiveGroup(String gid) async {
+    if (gid.isEmpty || !mounted || _busy) return;
+    try {
+      final since = DateTime.now()
+          .toUtc()
+          .subtract(const Duration(seconds: 45))
+          .toIso8601String();
+      final live = await Supabase.instance.client
+          .from('live_group_calls')
+          .select('video')
+          .eq('group_id', gid)
+          .gte('updated_at', since)
+          .maybeSingle();
+      if (!mounted) return;
+      if (live == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('That group call has ended.')),
+        );
+        return;
+      }
+      await _answerGroupFromPush(gid, live['video'] == true);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not join. Check your internet.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _answerGroupFromPush(String gid, bool video) async {
+    _busy = true;
+    CallNotification.cancel();
+    try {
+      final r = await Supabase.instance.client
+          .from('groups')
+          .select('name, emoji, color, mode')
+          .eq('id', gid)
+          .maybeSingle();
+      if (r != null && mounted) {
+        await _openGroupCall(
+          gid,
+          r['name'].toString(),
+          (r['emoji'] ?? '👥').toString(),
+          (r['color'] as num?)?.toInt() ?? 0xFF0D9488,
+          (r['mode'] ?? 'friends').toString(),
+          video,
+        );
+      }
+    } finally {
+      _busy = false;
+    }
     if (_cover) SystemNavigator.pop();
   }
 
@@ -305,6 +369,13 @@ class _ContactsScreenState extends State<ContactsScreen>
       WidgetsBinding.instance.addPostFrameCallback((_) => _handleOpenTap());
     });
     CallNotification.openListener = _handleOpenTap;
+    ChatScreen.startCall = (uid, name, video) {
+      final c = widget.contactController.contacts.value
+              .where((x) => x.uid == uid)
+              .firstOrNull ??
+          ContactModel(uid: uid, displayName: name, addedAt: DateTime.now());
+      _callContact(c, video: video);
+    };
     _loadMissed();
     CallNotification.actionListener = (a) {
       if (_incomingSession != null && mounted) {
@@ -324,6 +395,9 @@ class _ContactsScreenState extends State<ContactsScreen>
     NetStatus.online.addListener(_onNet);
     _loadMe();
     _presence = PresenceService(widget.myUid)..start();
+    GroupStatus.refresh(widget.myUid);
+    _groupPoll = Timer.periodic(const Duration(seconds: 15),
+        (_) => GroupStatus.refresh(widget.myUid));
     _loadUnread();
     _chatCh = Supabase.instance.client
         .channel('chat_unread')
@@ -358,12 +432,14 @@ class _ContactsScreenState extends State<ContactsScreen>
     CallNotification.actionListener = null;
     widget.contactController.contacts.removeListener(_watchContacts);
     NetStatus.online.removeListener(_onNet);
+    _groupPoll?.cancel();
     _presence.dispose();
     _chatCh?.unsubscribe();
     _unread.dispose();
     _preview.dispose();
     _missed.dispose();
     CallNotification.openListener = null;
+    ChatScreen.startCall = null;
     _ringSub?.cancel();
     _cancelSub?.cancel();
     _gringSub?.cancel();
@@ -1029,6 +1105,14 @@ class _ContactsScreenState extends State<ContactsScreen>
     if (p == null || !mounted) return;
     final kind = p['k']?.toString();
     final uid = p['u']?.toString() ?? '';
+    if (kind == 'group_call') {
+      _openLiveGroup(p['g']?.toString() ?? '');
+      return;
+    }
+    if (kind == 'group_chat') {
+      _openGroupChat(p['g']?.toString() ?? '');
+      return;
+    }
     if (kind == 'chat' && uid.isNotEmpty) {
       _openChatFor(uid);
     } else if (kind == 'friend_request') {
@@ -1036,6 +1120,34 @@ class _ContactsScreenState extends State<ContactsScreen>
     } else {
       _openRequests();
     }
+  }
+
+  Future<void> _openGroupChat(String gid) async {
+    if (gid.isEmpty || !mounted) return;
+    final gc = GroupController(widget.myUid);
+    await gc.refresh();
+    if (!mounted) {
+      gc.dispose();
+      return;
+    }
+    if (!gc.groups.value.any((x) => x.id == gid)) {
+      gc.dispose();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('That group is not available anymore.')),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GroupChatScreen(
+          groupController: gc,
+          groupId: gid,
+          contactController: widget.contactController,
+          myUid: widget.myUid,
+        ),
+      ),
+    );
+    gc.dispose();
   }
 
   void _openRequests() {
@@ -1312,7 +1424,22 @@ void _openInbox() {
           ),
           IconButton(
             tooltip: 'Groups',
-            icon: const Icon(Icons.groups_outlined),
+            icon: AnimatedBuilder(
+              animation:
+                  Listenable.merge([GroupStatus.live, GroupStatus.unread]),
+              builder: (context, _) {
+                final liveNow = GroupStatus.live.value.isNotEmpty;
+                final n = GroupStatus.unread.value.values
+                    .fold<int>(0, (a, b) => a + b);
+                return Badge(
+                  isLabelVisible: liveNow || n > 0,
+                  backgroundColor: Colors.red,
+                  smallSize: 10,
+                  label: liveNow ? null : Text('$n'),
+                  child: const Icon(Icons.groups_outlined),
+                );
+              },
+            ),
             onPressed: _openGroups,
           ),
           IconButton(

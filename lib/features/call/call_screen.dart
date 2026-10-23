@@ -955,7 +955,9 @@ class _CallScreenState extends State<CallScreen> {
               ),
             ),
 
-            // Controls at bottom
+            // Compact controls (video calls) or the full controls (voice calls)
+            if (_compact) _compactBar(),
+            if (!_compact)
             Positioned(
               left: 16,
               right: 16,
@@ -1105,6 +1107,119 @@ class _CallScreenState extends State<CallScreen> {
         ),
       ),
     ));
+  }
+
+  bool get _compact => widget.controller.mediaManager.hasVideo;
+
+  Future<void> _toggleCam() async {
+    final c = widget.controller;
+    if (!c.mediaManager.hasVideo) {
+      await c.enableVideo();
+    } else {
+      await c.toggleCamera();
+    }
+    _localRenderer.srcObject = null;
+    _localRenderer.srcObject = c.localStream;
+    if (mounted) setState(() {});
+  }
+
+  Widget _roundBox(IconData icon, bool hi) => Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: hi ? Colors.white : Colors.white.withOpacity(0.16),
+        ),
+        child: Icon(icon, size: 22, color: hi ? Colors.black87 : Colors.white),
+      );
+
+  Widget _round(IconData icon, bool hi, VoidCallback onTap) => GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: _roundBox(icon, hi),
+      );
+
+  Widget _endRound() => GestureDetector(
+        onTap: _endCall,
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              colors: [Color(0xFFEF4444), Color(0xFFDC2626)],
+            ),
+          ),
+          child: const Icon(Icons.call_end, color: Colors.white, size: 24),
+        ),
+      );
+
+  Widget _moreMenu() {
+    final c = widget.controller;
+    return PopupMenuButton<String>(
+      tooltip: 'More',
+      onSelected: (v) async {
+        if (v == 'hold') {
+          await c.toggleHold();
+          if (mounted) setState(() {});
+        } else if (v == 'share') {
+          await _toggleShare();
+        } else if (v == 'quality') {
+          _openQuality();
+        }
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: 'hold',
+          child: Text(c.onHold.value ? 'Resume call' : 'Hold call'),
+        ),
+        PopupMenuItem(
+          value: 'share',
+          child: Text(
+              c.screenSharing.value ? 'Stop screen share' : 'Share screen'),
+        ),
+        const PopupMenuItem(value: 'quality', child: Text('Call quality')),
+      ],
+      child: _roundBox(Icons.more_vert, false),
+    );
+  }
+
+  Widget _compactBar() {
+    final c = widget.controller;
+    final camOn = c.mediaManager.hasVideo && c.cameraEnabled;
+    return Positioned(
+      left: 12,
+      right: 12,
+      bottom: 16,
+      child: Glass(
+        blur: 14,
+        tint: _tint,
+        opacity: 0.30,
+        borderRadius: BorderRadius.circular(40),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _round(c.micEnabled ? Icons.mic : Icons.mic_off, !c.micEnabled,
+                () {
+              c.toggleMic();
+              setState(() {});
+            }),
+            _round(camOn ? Icons.videocam : Icons.videocam_off, !camOn,
+                _toggleCam),
+            _round(_speakerOn ? Icons.volume_up : Icons.hearing, _speakerOn,
+                _toggleSpeaker),
+            if (!c.screenSharing.value)
+              _round(Icons.cameraswitch, false, () {
+                c.switchCamera();
+                setState(() => _frontCamera = !_frontCamera);
+              }),
+            _moreMenu(),
+            _endRound(),
+          ],
+        ),
+      ),
+    );
   }
 
   String _phaseLabel(CallPhase phase) {

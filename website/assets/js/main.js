@@ -280,7 +280,7 @@ function setupMobileMenu() {
 
     // Close when window resized to desktop size
     window.addEventListener('resize', () => {
-      if (window.innerWidth > 768 && navLinks.classList.contains('show')) {
+      if (window.innerWidth > 1024 && navLinks.classList.contains('show')) {
         closeMenu();
       }
     });

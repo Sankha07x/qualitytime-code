@@ -15,6 +15,7 @@ import 'package:flutter/services.dart';
 import 'typing_service.dart';
 import 'typing_widgets.dart';
 import 'message_menu.dart';
+import 'reply_widgets.dart';
 
 class _Item {
   final DateTime at;
@@ -29,6 +30,8 @@ class ChatScreen extends StatefulWidget {
   final String contactUid;
   final String myUid;
   final String? photoUrl;
+
+  static void Function(String uid, String name, bool video)? startCall;
 
   const ChatScreen({
     super.key,
@@ -53,6 +56,9 @@ class _ChatScreenState extends State<ChatScreen> {
   final _scroll = ScrollController();
   final _showDown = ValueNotifier<bool>(false);
   bool _searching = false;
+  ChatMessage? _replying;
+  ChatMessage? _editing;
+  final _prefill = ValueNotifier<String?>(null);
   String _q = '';
 
   @override
@@ -72,6 +78,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _typing.dispose();
     _scroll.dispose();
     _showDown.dispose();
+    _prefill.dispose();
     _player.dispose();
     _chat.dispose();
     // small delay so a recording in progress can be cancelled first
@@ -147,6 +154,16 @@ class _ChatScreenState extends State<ChatScreen> {
     return (m.body ?? m.fileName ?? '').toLowerCase().contains(_q);
   }
 
+  void _call(bool video) {
+    final go = ChatScreen.startCall;
+    if (go == null) {
+      _snack('Calling is not available here.');
+      return;
+    }
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    go(widget.contactUid, widget.contactName, video);
+  }
+
   void _toggleSearch() => setState(() {
         _searching = !_searching;
         _q = '';
@@ -170,14 +187,64 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       );
 
+  void _startReply(ChatMessage m) {
+    setState(() {
+      _replying = m;
+      _editing = null;
+    });
+  }
+
+  Future<String?> _send(String text) async {
+    final e = _editing;
+    if (e != null) {
+      final err = await _chat.editText(e, text);
+      if (err == null && mounted) setState(() => _editing = null);
+      return err;
+    }
+    final r = _replying;
+    final err = await _chat.sendText(text, replyTo: r);
+    if (err == null && r != null && mounted) {
+      setState(() => _replying = null);
+    }
+    return err;
+  }
+
+  Widget _banner() {
+    final e = _editing;
+    final m = e ?? _replying;
+    if (m == null) return const SizedBox.shrink();
+    final who = m.fromUid == widget.myUid ? 'You' : widget.contactName;
+    return ReplyBanner(
+      title: e != null ? 'Editing message' : 'Replying to $who',
+      text: m.kind == 'file' ? '📎 ${m.fileName ?? 'File'}' : (m.body ?? ''),
+      editing: e != null,
+      onClose: () {
+        setState(() {
+          _replying = null;
+          _editing = null;
+        });
+        if (e != null) _prefill.value = '';
+      },
+    );
+  }
+
   Future<void> _menu(ChatMessage m) async {
     HapticFeedback.selectionClick();
     final c = await showMessageMenu(
       context,
       canCopy: m.kind == 'text',
+      canEdit: _chat.canEdit(m),
       mine: m.fromUid == widget.myUid,
     );
-    if (c == 'copy') {
+    if (c == 'reply') {
+      _startReply(m);
+    } else if (c == 'edit') {
+      setState(() {
+        _editing = m;
+        _replying = null;
+      });
+      _prefill.value = m.body ?? '';
+    } else if (c == 'copy') {
       await Clipboard.setData(ClipboardData(text: m.body ?? ''));
       _snack('Copied');
     } else if (c == 'me') {
@@ -202,7 +269,14 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     final idx = items.length - i;
     final it = items[idx];
-    final bubble = RepaintBoundary(child: _bubble(it));
+    final bubble = RepaintBoundary(
+      child: it.chat == null
+          ? _bubble(it)
+          : SwipeReply(
+              onReply: () => _startReply(it.chat!),
+              child: _bubble(it),
+            ),
+    );
     final newDay = idx == 0 || !_sameDay(items[idx - 1].at, it.at);
     if (!newDay) return bubble;
     return Column(
@@ -272,7 +346,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ],
           )
-        : Text(m.body ?? '',
+        : LinkText(m.body ?? '',
             style: TextStyle(
                 color: fg, fontSize: bigEmoji(m.body) ? 34 : 15));
     return BubbleShell(
@@ -286,12 +360,33 @@ class _ChatScreenState extends State<ChatScreen> {
             onTap: m.kind == 'file' && !isImageName(m.fileName)
                 ? () => openChatFile(context, _chat, m)
                 : null,
-            child: Align(alignment: Alignment.centerLeft, child: content),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (m.replyText != null)
+                    QuoteBox(
+                      name: m.replyFrom == widget.myUid
+                          ? 'You'
+                          : widget.contactName,
+                      text: m.replyText!,
+                      fg: fg,
+                    ),
+                  content,
+                ],
+              ),
+            ),
           ),
           const SizedBox(height: 2),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (m.editedAt != null)
+                Text('edited  ',
+                    style:
+                        TextStyle(color: fg.withOpacity(0.7), fontSize: 11)),
               Text(hm(m.createdAt),
                   style:
                       TextStyle(color: fg.withOpacity(0.7), fontSize: 11)),
@@ -355,6 +450,16 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: Icon(_searching ? Icons.close : Icons.search),
             onPressed: _toggleSearch,
           ),
+          IconButton(
+            tooltip: 'Voice call',
+            icon: const Icon(Icons.call),
+            onPressed: () => _call(false),
+          ),
+          IconButton(
+            tooltip: 'Video call',
+            icon: const Icon(Icons.videocam),
+            onPressed: () => _call(true),
+          ),
         ],
         bottom: _searching
             ? PreferredSize(
@@ -406,9 +511,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     },
                   ),
                 ),
+                _banner(),
                 ChatInputBar(
                   voice: _voice,
-                  onSendText: _chat.sendText,
+                  onSendText: _send,
+                  prefill: _prefill,
                   onAttach: _attach,
                   onRecordStart: _player.stop,
                   onMessage: _snack,

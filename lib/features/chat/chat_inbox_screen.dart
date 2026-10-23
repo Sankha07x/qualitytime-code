@@ -95,6 +95,7 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
           .select('from_uid, kind, body, created_at')
           .eq('to_uid', me)
           .neq('kind', 'delete')
+          .neq('kind', 'edit')
           .isFilter('read_at', null)
           .order('created_at');
       for (final r in rows as List) {
@@ -211,12 +212,28 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
                 )
               : AnimatedBuilder(
                   animation: cc.photos,
-                  builder: (context, _) => ListView.builder(
+                  builder: (context, _) => ListView.separated(
+                    padding: const EdgeInsets.all(12),
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemCount: _list.length,
                     itemBuilder: (context, i) {
                       final v = _list[i];
                       final bold = v.unread > 0;
                       return ListTile(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          side: BorderSide(
+                            color: bold
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.black12,
+                          ),
+                        ),
+                        tileColor: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withOpacity(bold ? 0.12 : 0.05),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 6),
                         leading: UserAvatar(
                           name: v.contact.displayName,
                           photoUrl: cc.photos.value[v.contact.uid],

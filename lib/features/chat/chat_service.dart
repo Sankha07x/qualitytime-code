@@ -10,7 +10,11 @@ class ChatMessage {
   final String fromUid;
   final String toUid;
   final String kind; // 'text' or 'file'
-  final String? body;
+  String? body;
+  String? replyTo;
+  String? replyText;
+  String? replyFrom;
+  DateTime? editedAt;
   final String? fileName;
   final String? localName; // file saved on this phone
   final int? fileSize;
@@ -27,6 +31,10 @@ class ChatMessage {
     this.fileSize,
     required this.createdAt,
     this.status = 0,
+    this.replyTo,
+    this.replyText,
+    this.replyFrom,
+    this.editedAt,
   });
 
   Map<String, dynamic> toJson() => {
@@ -40,6 +48,10 @@ class ChatMessage {
         'fileSize': fileSize,
         'at': createdAt.toUtc().toIso8601String(),
         'status': status,
+        'rt': replyTo,
+        'rx': replyText,
+        'rf': replyFrom,
+        'ed': editedAt?.toUtc().toIso8601String(),
       };
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
@@ -53,6 +65,12 @@ class ChatMessage {
         fileSize: (j['fileSize'] as num?)?.toInt(),
         createdAt: DateTime.parse(j['at'] as String).toLocal(),
         status: (j['status'] as num?)?.toInt() ?? 2,
+        replyTo: j['rt'] as String?,
+        replyText: j['rx'] as String?,
+        replyFrom: j['rf'] as String?,
+        editedAt: j['ed'] == null
+            ? null
+            : DateTime.parse(j['ed'] as String).toLocal(),
       );
 }
 
@@ -146,6 +164,16 @@ class ChatService {
           .order('created_at');
       for (final r in rows as List) {
         final row = Map<String, dynamic>.from(r);
+        if (row['kind'] == 'edit') {
+          await _applyEdit(row);
+          try {
+            await _c
+                .from('chat_messages')
+                .delete()
+                .eq('id', row['id'] as String);
+          } catch (_) {}
+          continue;
+        }
         if (row['kind'] == 'delete') {
           await _applyDelete((row['body'] ?? '').toString());
           try {
@@ -180,6 +208,9 @@ class ChatService {
           fileName: row['file_name'] as String?,
           localName: localName,
           fileSize: (row['file_size'] as num?)?.toInt(),
+          replyTo: row['reply_to']?.toString(),
+          replyText: row['reply_text'] as String?,
+          replyFrom: row['reply_from'] as String?,
           createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
         ));
         try {
@@ -193,6 +224,7 @@ class ChatService {
             'body': null,
             'file_path': null,
             'file_name': null,
+            'reply_text': null,
           }).eq('id', id);
         } catch (e) {
           debugPrint('CHAT cloud delete failed: $e');
@@ -206,14 +238,22 @@ class ChatService {
   }
 
   /// Returns an error text, or null on success.
-  Future<String?> sendText(String text) async {
+  Future<String?> sendText(String text, {ChatMessage? replyTo}) async {
     final t = text.trim();
     if (t.isEmpty) return 'Nothing to send.';
     if (t.length > 4000) return 'Message is too long.';
     try {
       final row = await _c
           .from('chat_messages')
-          .insert({'from_uid': myUid, 'to_uid': peerUid, 'kind': 'text', 'body': t})
+          .insert({
+            'from_uid': myUid,
+            'to_uid': peerUid,
+            'kind': 'text',
+            'body': t,
+            if (replyTo != null) 'reply_to': replyTo.id,
+            if (replyTo != null) 'reply_text': _snip(replyTo),
+            if (replyTo != null) 'reply_from': replyTo.fromUid,
+          })
           .select('id, created_at')
           .single();
       await _add(ChatMessage(
@@ -222,6 +262,9 @@ class ChatService {
         toUid: peerUid,
         kind: 'text',
         body: t,
+        replyTo: replyTo?.id,
+        replyText: replyTo == null ? null : _snip(replyTo),
+        replyFrom: replyTo?.fromUid,
         createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
       ));
       return null;
@@ -278,6 +321,62 @@ class ChatService {
       } catch (_) {}
       return 'Could not send. You can only send to friends.';
     }
+  }
+
+  static const editWindow = Duration(minutes: 15);
+
+  String _snip(ChatMessage m) {
+    if (m.kind == 'file') return '📎 ${m.fileName ?? 'File'}';
+    final t = (m.body ?? '').replaceAll('\n', ' ');
+    return t.length > 80 ? '${t.substring(0, 80)}…' : t;
+  }
+
+  bool canEdit(ChatMessage m) =>
+      m.fromUid == myUid &&
+      m.kind == 'text' &&
+      DateTime.now().difference(m.createdAt) < editWindow;
+
+  /// Returns an error text, or null on success.
+  Future<String?> editText(ChatMessage m, String text) async {
+    final t = text.trim();
+    if (t.isEmpty) return 'Message cannot be empty.';
+    if (t.length > 4000) return 'Message is too long.';
+    if (!canEdit(m)) return 'You can only edit within 15 minutes.';
+    if (t == (m.body ?? '')) return null;
+    try {
+      await _c.from('chat_messages').insert({
+        'from_uid': myUid,
+        'to_uid': peerUid,
+        'kind': 'edit',
+        'body': t,
+        'reply_to': m.id,
+      });
+    } catch (e) {
+      debugPrint('CHAT edit failed: $e');
+      return 'Could not edit. Check your internet.';
+    }
+    m.body = t;
+    m.editedAt = DateTime.now();
+    messages.value = [...messages.value];
+    await _save();
+    return null;
+  }
+
+  /// Their edit arrived: apply it if it was inside the 15 minutes.
+  Future<void> _applyEdit(Map<String, dynamic> row) async {
+    final id = (row['reply_to'] ?? '').toString();
+    final hit =
+        messages.value.where((x) => x.id == id && x.fromUid == peerUid);
+    if (hit.isEmpty) return;
+    final m = hit.first;
+    final at = DateTime.parse(row['created_at'].toString()).toLocal();
+    if (at.difference(m.createdAt) > editWindow + const Duration(minutes: 1)) {
+      return;
+    }
+    m.body = (row['body'] ?? '').toString();
+    m.editedAt = at;
+    messages.value = [...messages.value];
+    await _save();
   }
 
   Future<File?> fileOf(ChatMessage m) async {

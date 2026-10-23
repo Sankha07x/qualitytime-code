@@ -14,6 +14,7 @@ class ChatInputBar extends StatefulWidget {
   final VoidCallback onRecordStart;
   final void Function(String) onMessage;
   final void Function(bool typing)? onTyping;
+  final ValueNotifier<String?>? prefill;
 
   const ChatInputBar({
     super.key,
@@ -23,6 +24,7 @@ class ChatInputBar extends StatefulWidget {
     required this.onRecordStart,
     required this.onMessage,
     this.onTyping,
+    this.prefill,
   });
 
   @override
@@ -42,6 +44,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
   @override
   void initState() {
     super.initState();
+    widget.prefill?.addListener(_applyPrefill);
     _ctrl.addListener(() {
       final h = _ctrl.text.trim().isNotEmpty;
       widget.onTyping?.call(h);
@@ -54,9 +57,18 @@ class _ChatInputBarState extends State<ChatInputBar> {
     _timer?.cancel();
     _amp?.cancel();
     if (_recording) widget.voice.cancelRecording();
+    widget.prefill?.removeListener(_applyPrefill);
     _ctrl.dispose();
     _level.dispose();
     super.dispose();
+  }
+
+  void _applyPrefill() {
+    final t = widget.prefill?.value;
+    if (t == null) return;
+    _ctrl.text = t;
+    _ctrl.selection = TextSelection.collapsed(offset: t.length);
+    widget.prefill?.value = null;
   }
 
   String _fmt(int v) => '${v ~/ 60}:${(v % 60).toString().padLeft(2, '0')}';

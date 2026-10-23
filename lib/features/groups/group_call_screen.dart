@@ -149,6 +149,7 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
         if (mounted) setState(() => _seconds++);
       });
       if (mounted) setState(() => _joined = true);
+      _startLive();
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     }
@@ -277,6 +278,37 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
     if (mounted) setState(() {});
   }
 
+  Timer? _liveTimer;
+
+  void _startLive() {
+    if (widget.groupId.startsWith('call_')) return;
+    Future<void> beat() async {
+      try {
+        await Supabase.instance.client.from('live_group_calls').upsert({
+          'group_id': widget.groupId,
+          'video': widget.video,
+          'started_by': widget.myUid,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        });
+      } catch (_) {}
+    }
+
+    beat();
+    _liveTimer = Timer.periodic(const Duration(seconds: 20), (_) => beat());
+  }
+
+  void _stopLive() {
+    if (widget.groupId.startsWith('call_')) return;
+    () async {
+      try {
+        await Supabase.instance.client
+            .from('live_group_calls')
+            .delete()
+            .eq('group_id', widget.groupId);
+      } catch (_) {}
+    }();
+  }
+
   Future<void> _leave() async {
     if (_leaving) return;
     _leaving = true;
@@ -344,6 +376,8 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
   @override
   void dispose() {
     _clock?.cancel();
+    _liveTimer?.cancel();
+    _stopLive();
     _room.removeListener(_onChange);
     widget.contactController.photos.removeListener(_onChange);
     widget.groupController.groups.removeListener(_onChange);

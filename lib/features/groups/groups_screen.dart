@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import '../contacts/contact_controller.dart';
 import 'group_controller.dart';
+import 'dart:async';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'group_detail_screen.dart';
+import 'group_call_screen.dart';
+import 'group_chat_screen.dart';
+import 'group_status.dart';
 
 const _emojis = [
   '🎉', '🔥', '🎮', '🎵', '🍕', '⚽',
@@ -106,15 +111,72 @@ class GroupsScreen extends StatefulWidget {
 
 class _GroupsScreenState extends State<GroupsScreen> {
   late final GroupController _gc = GroupController(widget.myUid);
+  final Map<String, bool> _live = {};
+  Timer? _poll;
+
+  Future<void> _loadLive() async {
+    GroupStatus.refresh(widget.myUid);
+    try {
+      final since = DateTime.now()
+          .toUtc()
+          .subtract(const Duration(seconds: 45))
+          .toIso8601String();
+      final rows = await Supabase.instance.client
+          .from('live_group_calls')
+          .select('group_id, video')
+          .gte('updated_at', since);
+      if (!mounted) return;
+      setState(() {
+        _live.clear();
+        for (final r in rows as List) {
+          _live[r['group_id'].toString()] = r['video'] == true;
+        }
+      });
+    } catch (_) {}
+  }
+
+  void _openChat(GroupModel g) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GroupChatScreen(
+          groupController: _gc,
+          groupId: g.id,
+          contactController: widget.contactController,
+          myUid: widget.myUid,
+        ),
+      ),
+    );
+  }
+
+  void _joinLive(GroupModel g) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GroupCallScreen(
+          groupId: g.id,
+          groupName: g.name,
+          video: _live[g.id] ?? false,
+          emoji: g.emoji,
+          color: g.color,
+          mode: g.mode,
+          groupController: _gc,
+          contactController: widget.contactController,
+          myUid: widget.myUid,
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
     super.initState();
     _gc.start();
+    _loadLive();
+    _poll = Timer.periodic(const Duration(seconds: 8), (_) => _loadLive());
   }
 
   @override
   void dispose() {
+    _poll?.cancel();
     _gc.dispose();
     super.dispose();
   }
@@ -276,16 +338,73 @@ class _GroupsScreenState extends State<GroupsScreen> {
             return const Center(
                 child: Text('No groups yet. Tap + to create one.'));
           }
-          return ListView.builder(
+          return ListView.separated(
+            padding: const EdgeInsets.all(12),
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemCount: list.length,
             itemBuilder: (context, i) {
               final g = list[i];
+              final live = _live.containsKey(g.id);
               return ListTile(
-                leading: GroupAvatar(g: g),
-                title: Text(g.name),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(
+                    color: live
+                        ? Colors.red
+                        : Color(g.color).withOpacity(0.35),
+                    width: live ? 2 : 1,
+                  ),
+                ),
+                tileColor: Color(g.color).withOpacity(0.12),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                leading: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    GroupAvatar(g: g),
+                    if (_live.containsKey(g.id))
+                      Positioned(
+                        right: -2,
+                        top: -2,
+                        child: Container(
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                title: Text(
+                  g.name,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 17),
+                ),
                 subtitle: Text(
                   '${g.mode == 'work' ? 'Work' : 'Friends'} · ${g.members.length} members',
                 ),
+                trailing: _live.containsKey(g.id)
+                    ? FilledButton(
+                        style: FilledButton.styleFrom(
+                            backgroundColor: Colors.red),
+                        onPressed: () => _joinLive(g),
+                        child: const Text('Join live'),
+                      )
+                    : IconButton(
+                        tooltip: 'Group chat',
+                        icon: ValueListenableBuilder<Map<String, int>>(
+                          valueListenable: GroupStatus.unread,
+                          builder: (_, u, __) => Badge(
+                            isLabelVisible: (u[g.id] ?? 0) > 0,
+                            label: Text('${u[g.id] ?? 0}'),
+                            child: const Icon(Icons.chat_bubble_outline),
+                          ),
+                        ),
+                        onPressed: () => _openChat(g),
+                      ),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => GroupDetailScreen(

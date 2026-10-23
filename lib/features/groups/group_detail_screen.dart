@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../core/signaling/group_ring_service.dart';
+import '../../utils/user_avatar.dart';
 import '../contacts/contact_controller.dart';
 import 'group_controller.dart';
 import 'groups_screen.dart';
 import 'group_call_screen.dart';
+import 'group_chat_screen.dart';
 
 class GroupDetailScreen extends StatelessWidget {
   final GroupController groupController;
@@ -60,6 +62,100 @@ class GroupDetailScreen extends StatelessWidget {
     );
   }
 
+  void _chat(BuildContext context, GroupModel g) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GroupChatScreen(
+          groupController: groupController,
+          groupId: g.id,
+          contactController: contactController,
+          myUid: myUid,
+        ),
+      ),
+    );
+  }
+
+  Widget _header(BuildContext context, GroupModel g) {
+    final c = Color(g.color);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(26),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [c.withOpacity(0.45), c.withOpacity(0.08)],
+        ),
+        border: Border.all(color: c.withOpacity(0.4)),
+      ),
+      child: Column(
+        children: [
+          GroupAvatar(g: g, size: 92),
+          const SizedBox(height: 12),
+          Text(
+            g.name,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${g.mode == 'work' ? 'Work group' : 'Friends group'}'
+            ' · ${g.members.length} members',
+            style: const TextStyle(color: Colors.grey),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(backgroundColor: c),
+                  onPressed: () => _call(context, g, false),
+                  icon: const Icon(Icons.call),
+                  label: const Text('Voice'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(backgroundColor: c),
+                  onPressed: () => _call(context, g, true),
+                  icon: const Icon(Icons.videocam),
+                  label: const Text('Video'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _member(BuildContext context, GroupModel g, String u,
+      Map<String, String> photos) {
+    if (u != myUid && !photos.containsKey(u)) contactController.fetchPhoto(u);
+    final name = groupController.nameOf(u);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: Colors.black12),
+        ),
+        tileColor: Color(g.color).withOpacity(0.07),
+        leading: UserAvatar(name: name, photoUrl: photos[u]),
+        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Text(u == myUid ? 'You' : u),
+        trailing: (g.isOwner && u != myUid)
+            ? IconButton(
+                tooltip: 'Remove',
+                icon: const Icon(Icons.remove_circle_outline),
+                onPressed: () => groupController.removeMember(g.id, u),
+              )
+            : null,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<List<GroupModel>>(
@@ -76,16 +172,6 @@ class GroupDetailScreen extends StatelessWidget {
           appBar: AppBar(
             title: Text(g.name),
             actions: [
-              IconButton(
-                tooltip: 'Group voice call',
-                icon: const Icon(Icons.call),
-                onPressed: () => _call(context, g, false),
-              ),
-              IconButton(
-                tooltip: 'Group video call',
-                icon: const Icon(Icons.videocam),
-                onPressed: () => _call(context, g, true),
-              ),
               if (g.members.contains(myUid))
                 IconButton(
                   tooltip: 'Add people',
@@ -94,44 +180,42 @@ class GroupDetailScreen extends StatelessWidget {
                 ),
             ],
           ),
-          body: ListView(
-            children: [
-              const SizedBox(height: 16),
-              Center(child: GroupAvatar(g: g, size: 84)),
-              const SizedBox(height: 8),
-              Center(
-                child: Text(
-                  g.mode == 'work' ? 'Work group' : 'Friends group',
-                  style: const TextStyle(color: Colors.grey),
+          body: ValueListenableBuilder<Map<String, String>>(
+            valueListenable: contactController.photos,
+            builder: (context, photos, _) => ListView(
+              padding: const EdgeInsets.all(12),
+              children: [
+                _header(context, g),
+                const SizedBox(height: 10),
+                FilledButton.tonalIcon(
+                  style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48)),
+                  onPressed: () => _chat(context, g),
+                  icon: const Icon(Icons.chat_bubble_outline),
+                  label: const Text('Open group chat'),
                 ),
-              ),
-              const SizedBox(height: 12),
-              for (final u in g.members)
-                ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.person)),
-                  title: Text(groupController.nameOf(u)),
-                  subtitle: Text(u),
-                  trailing: (g.isOwner && u != myUid)
-                      ? IconButton(
-                          tooltip: 'Remove',
-                          icon: const Icon(Icons.remove_circle_outline),
-                          onPressed: () =>
-                              groupController.removeMember(g.id, u),
-                        )
-                      : null,
+                const SizedBox(height: 18),
+                const Padding(
+                  padding: EdgeInsets.only(left: 6, bottom: 8),
+                  child: Text('Members',
+                      style: TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w700)),
                 ),
-              const SizedBox(height: 24),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: OutlinedButton(
-                  style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                for (final u in g.members) _member(context, g, u, photos),
+                const SizedBox(height: 16),
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    minimumSize: const Size.fromHeight(48),
+                  ),
                   onPressed: () => g.isOwner
                       ? groupController.deleteGroup(g.id)
                       : groupController.removeMember(g.id, myUid),
                   child: Text(g.isOwner ? 'Delete group' : 'Leave group'),
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
         );
       },
