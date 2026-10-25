@@ -44,6 +44,11 @@ class PeerConnectionManager {
   /// Bytes sent + received on the network path, headers included.
   final dataBytes = ValueNotifier<int>(0);
 
+  /// How loud the other person is right now (0 to 1), for the voice animation.
+  final voiceLevel = ValueNotifier<double>(0);
+  Timer? _levelTimer;
+  bool _levelBusy = false;
+
   /// True when delay or packet loss stays bad for a few seconds.
   final weakNetwork = ValueNotifier<bool>(false);
 
@@ -124,6 +129,7 @@ class PeerConnectionManager {
     };
 
     _peerConnection!.onConnectionState = (state) {
+      debugPrint('PC state: $state');
       switch (state) {
         case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
           _restartTimer?.cancel();
@@ -206,13 +212,28 @@ class PeerConnectionManager {
     }
     if (_offering) return;
     _offering = true;
-    final offer = await _peerConnection!.createOffer();
+    final RTCSessionDescription offer;
+    try {
+      offer = await _peerConnection!.createOffer();
+    } catch (e) {
+      _offering = false;
+      debugPrint('createOffer failed: $e');
+      return;
+    }
     await _peerConnection!.setLocalDescription(offer);
     _pendingOffer = {'type': offer.type, 'sdp': offer.sdp};
     await signaling.sendSessionDescription(_pendingOffer!);
   }
 
   Future<void> _handleRemoteDescription(Map<String, dynamic> data) async {
+    try {
+      await _handleRemoteDescriptionInner(data);
+    } catch (e) {
+      debugPrint('handleRemoteDescription failed: $e');
+    }
+  }
+
+  Future<void> _handleRemoteDescriptionInner(Map<String, dynamic> data) async {
     final type = data['type'];
 
     if (type == 'ready') {
@@ -226,7 +247,7 @@ class PeerConnectionManager {
       return;
     }
 
-        if (type == 'camera') {
+    if (type == 'camera') {
       remoteCameraOn.value = data['on'] == true;
       return;
     }
@@ -428,6 +449,7 @@ class PeerConnectionManager {
   }
 
   void _startStats() {
+    _startLevel();
     _statsTimer ??=
         Timer.periodic(const Duration(seconds: 2), (_) => _pollStats());
   }
@@ -508,6 +530,34 @@ class PeerConnectionManager {
       if (_goodStrikes >= 5) weakNetwork.value = false;
     } catch (e) {
       debugPrint('pollStats failed: $e');
+    }
+  }
+
+  void _startLevel() {
+    _levelTimer ??= Timer.periodic(
+        const Duration(milliseconds: 220), (_) => _pollLevel());
+  }
+
+  Future<void> _pollLevel() async {
+    final pc = _peerConnection;
+    if (pc == null || _levelBusy) return;
+    _levelBusy = true;
+    try {
+      final reports = await pc.getStats();
+      double lv = 0;
+      for (final r in reports) {
+        final v = r.values;
+        final kind = (v['kind'] ?? v['mediaType'] ?? '').toString();
+        if (r.type == 'inbound-rtp' && kind == 'audio') {
+          lv = _n(v['audioLevel']).toDouble();
+        }
+      }
+      final x = (lv * 5).clamp(0.0, 1.0).toDouble();
+      voiceLevel.value =
+          x > voiceLevel.value ? x : voiceLevel.value * 0.6 + x * 0.4;
+    } catch (_) {
+    } finally {
+      _levelBusy = false;
     }
   }
 
@@ -630,6 +680,8 @@ class PeerConnectionManager {
     _restartTimer?.cancel();
     _statsTimer?.cancel();
     _statsTimer = null;
+    _levelTimer?.cancel();
+    _levelTimer = null;
     await _peerConnection?.close();
     await _peerConnection?.dispose();
     _peerConnection = null;
@@ -639,7 +691,11 @@ class PeerConnectionManager {
   }
 
   void dispose() {
-    endCall();
+    endCall().catchError((_) {}).whenComplete(_disposeNotifiers);
+  }
+
+  void _disposeNotifiers() {
+    // endCall is now started in dispose() above
     _stateController.dispose();
     _remoteStreamController.dispose();
     dataBytes.dispose();
@@ -654,5 +710,6 @@ class PeerConnectionManager {
     remoteMicOn.dispose();
     debugText.dispose();
     autoVideo.dispose();
+    voiceLevel.dispose();
   }
 }

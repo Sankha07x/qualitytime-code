@@ -301,7 +301,12 @@ class _CustomizeScreenState extends State<CustomizeScreen> {
                             color: scheme.surfaceContainerHighest,
                             child: const Center(child: Text('No wallpaper')),
                           )
-                        : Image.file(File(wp), fit: BoxFit.cover),
+                        : Image.file(
+                            File(wp),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const Center(
+                                child: Text('Cannot show this picture')),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 10),

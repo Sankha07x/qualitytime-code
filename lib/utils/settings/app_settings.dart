@@ -32,6 +32,7 @@ class AppSettings {
   static final tone = ValueNotifier<String>('classic');
   static final incomingTone = ValueNotifier<String>('system');
   static final holdTone = ValueNotifier<String>('soft');
+  static final vibration = ValueNotifier<bool>(true);
   static String? customTonePath;
   static String? customToneName;
   static String? customIncomingPath;
@@ -62,6 +63,7 @@ class AppSettings {
       if (it == 'custom' && customIncomingPath == null) it = 'system';
       incomingTone.value = it;
       holdTone.value = p.getString('set_hold_tone') ?? 'soft';
+      vibration.value = p.getBool('set_vibration') ?? true;
     } catch (e) {
       debugPrint('Settings load failed: $e');
     }
@@ -125,6 +127,12 @@ class AppSettings {
     incomingTone.value = id;
     final p = await SharedPreferences.getInstance();
     await p.setString('set_incoming_tone', id);
+  }
+
+  static Future<void> setVibration(bool v) async {
+    vibration.value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('set_vibration', v);
   }
 
   static Future<void> setHoldTone(String id) async {

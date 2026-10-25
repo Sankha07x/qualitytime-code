@@ -78,7 +78,8 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
   @override
   void initState() {
     super.initState();
-    widget.contactController.refreshProfiles();
+    Future.sync(() => widget.contactController.refreshProfiles())
+        .catchError((_) {});
     _loadUnheard();
     _loadQuality();
     _loadUnreadChat();
@@ -208,7 +209,17 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
       ),
     );
     if (ok != true || !mounted) return;
-    widget.contactController.removeContact(c.uid);
+    try {
+      widget.contactController.removeContact(c.uid);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not remove. Try again.')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
     Navigator.of(context).pop();
   }
 

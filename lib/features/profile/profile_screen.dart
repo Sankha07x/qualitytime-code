@@ -46,7 +46,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _load() async {
     try {
       final p = await _service.load();
-      if (!mounted || p == null) return;
+      if (!mounted) return;
+      if (p == null) {
+        _toast("Couldn't load your profile");
+        return;
+      }
       setState(() {
         _me = p;
         _nameCtrl.text = p.name;
@@ -148,7 +152,7 @@ void _openBig() {
         maxHeight: 1600,
         imageQuality: 82,
       );
-      if (x == null) return;
+      if (x == null || !mounted) return;
       setState(() => _busy = true);
       final raw = await x.readAsBytes();
       if (!mounted) return;
@@ -185,7 +189,7 @@ void _openBig() {
       _toast('Name must be 1 to 30 characters');
       return;
     }
-    if (n == _me?.name) return;
+    if (n == _me?.name || _busy) return;
     setState(() => _busy = true);
     try {
       await _service.updateName(n);
@@ -240,7 +244,12 @@ void _openBig() {
     );
     if (value == null || value.trim().isEmpty) return;
     setState(() => _busy = true);
-    final err = await _service.changeUid(value);
+    String? err;
+    try {
+      err = await _service.changeUid(value);
+    } catch (_) {
+      err = 'Could not change the ID. Check your internet.';
+    }
     if (!mounted) return;
     setState(() => _busy = false);
     if (err != null) {

@@ -31,6 +31,7 @@ class CallController {
   ValueListenable<bool> get remoteCameraOn => _peerManager.remoteCameraOn;
   ValueListenable<String> get debugText => _peerManager.debugText;
   ValueListenable<bool> get remoteScreenOn => _peerManager.remoteScreenOn;
+  ValueListenable<double> get voiceLevel => _peerManager.voiceLevel;
 
   /// True while I am sharing my screen.
   final screenSharing = ValueNotifier<bool>(false);
@@ -111,8 +112,10 @@ class CallController {
         _applyQuality();
         break;
       case CallConnectionState.failed:
+        _armConnectGuard(45);
       case CallConnectionState.disconnected:
         _phaseController.value = CallPhase.connecting;
+        _armConnectGuard(45);
         break;
       default:
         break;
@@ -124,18 +127,30 @@ class CallController {
   /// channel name).
   Future<void> startOutgoingCall(String sessionId, {bool video = true}) async {
     _phaseController.value = CallPhase.connecting;
-    await mediaManager.getLocalStream(videoEnabled: video);
-    await _signaling.joinSession(sessionId);
-    await _peerManager.startCall();
+    try {
+      await mediaManager.getLocalStream(videoEnabled: video);
+      await _signaling.joinSession(sessionId);
+      await _peerManager.startCall();
+    } catch (e) {
+      debugPrint('startOutgoingCall failed: $e');
+      endLabel = 'Could not connect';
+      await endCall(notifyPeer: false);
+    }
   }
 
   /// Joins an incoming call session and waits for the caller's offer.
   Future<void> acceptIncomingCall(String sessionId, {bool video = true}) async {
     _phaseController.value = CallPhase.connecting;
-    await mediaManager.getLocalStream(videoEnabled: video);
-    await _signaling.joinSession(sessionId);
-    await _peerManager.waitForCall();
-    _armConnectGuard(30);
+    try {
+      await mediaManager.getLocalStream(videoEnabled: video);
+      await _signaling.joinSession(sessionId);
+      await _peerManager.waitForCall();
+      _armConnectGuard(30);
+    } catch (e) {
+      debugPrint('acceptIncomingCall failed: $e');
+      endLabel = 'Could not connect';
+      await endCall(notifyPeer: false);
+    }
   }
 
   bool _hasContactDefault = false;
@@ -350,10 +365,21 @@ class CallController {
       await mediaManager.stopScreen();
       await ScreenShareBridge.end();
     }
-    if (notifyPeer) await _peerManager.sendEnd();
-    await _peerManager.endCall();
-    await _signaling.leaveSession();
-    await mediaManager.dispose();
+    _connectGuard?.cancel();
+    if (notifyPeer) {
+      try {
+        await _peerManager.sendEnd();
+      } catch (_) {}
+    }
+    try {
+      await _peerManager.endCall();
+    } catch (_) {}
+    try {
+      await _signaling.leaveSession();
+    } catch (_) {}
+    try {
+      await mediaManager.dispose();
+    } catch (_) {}
     if (_ongoingStarted) {
       _ongoingStarted = false;
       CallNotification.stopOngoing();

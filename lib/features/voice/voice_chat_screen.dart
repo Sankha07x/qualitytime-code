@@ -91,7 +91,14 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
 
   Future<void> _startRec() async {
     await _player.stop();
-    final ok = await _svc.startRecording();
+    if (_recording) return;
+    bool ok = false;
+    try {
+      ok = await _svc.startRecording();
+    } catch (_) {
+      ok = false;
+    }
+    if (!mounted) return;
     if (!ok) {
       _snack('Microphone permission is needed.');
       return;
@@ -117,18 +124,29 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
     _timer?.cancel();
     _ampSub?.cancel();
     _level.value = 0;
-    setState(() => _recording = false);
+    if (mounted) setState(() => _recording = false);
     if (!send) {
+      HapticFeedback.selectionClick();
       await _svc.cancelRecording();
       return;
     }
-    final r = await _svc.stopRecording();
+    dynamic r;
+    try {
+      r = await _svc.stopRecording();
+    } catch (_) {
+      r = null;
+    }
     if (r == null) {
       _snack('Too short. Record for at least a second.');
       return;
     }
     if (mounted) setState(() => _sending = true);
-    final err = await _svc.send(r.file, r.seconds);
+    String? err;
+    try {
+      err = await _svc.send(r.file, r.seconds);
+    } catch (_) {
+      err = 'Voice message not sent. Try again.';
+    }
     if (mounted) setState(() => _sending = false);
     if (err != null) {
       _snack(err);
@@ -147,7 +165,12 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
       return;
     }
     setState(() => _loadingId = m.id);
-    final f = await _svc.fileFor(m);
+    dynamic f;
+    try {
+      f = await _svc.fileFor(m);
+    } catch (_) {
+      f = null;
+    }
     if (!mounted) return;
     setState(() => _loadingId = null);
     if (f == null) {
@@ -158,7 +181,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
       await _player.stop();
       _pos.value = 0;
       await _player.play(DeviceFileSource(f.path));
-      setState(() => _playingId = m.id);
+      if (mounted) setState(() => _playingId = m.id);
     } catch (_) {
       _snack('Could not play this message.');
     }
@@ -184,7 +207,11 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
     );
     if (ok == true) {
       if (_playingId == m.id) await _player.stop();
-      await _svc.delete(m);
+      try {
+        await _svc.delete(m);
+      } catch (_) {
+        _snack('Could not delete. Try again.');
+      }
     }
   }
 
@@ -197,7 +224,11 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
       return Stack(
         fit: StackFit.expand,
         children: [
-          Image.file(File(wp), fit: BoxFit.cover),
+          Image.file(
+            File(wp),
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+          ),
           ColoredBox(color: s.surface.withOpacity(0.55)),
         ],
       );
@@ -224,7 +255,10 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> {
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
-        onLongPress: () => _confirmDelete(m),
+        onLongPress: () {
+          HapticFeedback.selectionClick();
+          _confirmDelete(m);
+        },
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           padding: const EdgeInsets.fromLTRB(10, 10, 14, 8),

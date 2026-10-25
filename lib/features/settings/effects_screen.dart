@@ -23,7 +23,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
   Future<void> _changed() async {
     final p = _p;
     if (p == null) return;
-    await p.save();
+    try {
+      await p.save();
+    } catch (_) {}
     FxBridge.applyVideo();
     FxBridge.applyAudio();
     if (mounted) setState(() {});

@@ -28,6 +28,7 @@ import '../chat/chat_inbox_screen.dart';
 import '../chat/chat_screen.dart';
 import 'dart:io' show File;
 import '../../utils/settings/app_settings.dart';
+import '../../utils/haptics.dart';
 import 'dart:ui' show ImageFilter;
 import '../../utils/glass.dart';
 import '../settings/settings_screen.dart';
@@ -81,7 +82,9 @@ class _ContactsScreenState extends State<ContactsScreen>
   late final PresenceService _presence;
 
   bool _wasOnline = true;
+  bool _unreadReady = false;
   Timer? _groupPoll;
+  Timer? _unreadDebounce;
 
   // Unread chat messages per friend (waiting in the cloud).
   final _unread = ValueNotifier<Map<String, int>>({});
@@ -158,6 +161,10 @@ class _ContactsScreenState extends State<ContactsScreen>
         pv[u] = r['kind'] == 'file' ? '📎 File' : (r['body'] ?? '').toString();
       }
       if (mounted) {
+        final before = _unread.value.values.fold<int>(0, (a, b) => a + b);
+        final after = m.values.fold<int>(0, (a, b) => a + b);
+        if (_unreadReady && after > before) Haptics.medium();
+        _unreadReady = true;
         _preview.value = pv;
         _unread.value = m;
       }
@@ -397,7 +404,9 @@ class _ContactsScreenState extends State<ContactsScreen>
     _presence = PresenceService(widget.myUid)..start();
     GroupStatus.refresh(widget.myUid);
     _groupPoll = Timer.periodic(const Duration(seconds: 15),
-        (_) => GroupStatus.refresh(widget.myUid));
+        (_) {
+      if (NetStatus.online.value) GroupStatus.refresh(widget.myUid);
+    });
     _loadUnread();
     _chatCh = Supabase.instance.client
         .channel('chat_unread')
@@ -405,7 +414,11 @@ class _ContactsScreenState extends State<ContactsScreen>
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'chat_messages',
-          callback: (_) => _loadUnread(),
+          callback: (_) {
+            _unreadDebounce?.cancel();
+            _unreadDebounce =
+                Timer(const Duration(milliseconds: 400), _loadUnread);
+          },
         )
         .subscribe();
     widget.contactController.contacts.addListener(_watchContacts);
@@ -433,6 +446,7 @@ class _ContactsScreenState extends State<ContactsScreen>
     widget.contactController.contacts.removeListener(_watchContacts);
     NetStatus.online.removeListener(_onNet);
     _groupPoll?.cancel();
+    _unreadDebounce?.cancel();
     _presence.dispose();
     _chatCh?.unsubscribe();
     _unread.dispose();
@@ -470,11 +484,24 @@ class _ContactsScreenState extends State<ContactsScreen>
   }
 
   Future<void> _addFromLog(String uid) async {
-    final err = await widget.contactController.sendFriendRequest(uid);
+    String? err;
+    try {
+      err = await widget.contactController.sendFriendRequest(uid);
+    } catch (_) {
+      err = 'Could not send. Check your internet.';
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(err ?? 'Friend request sent')),
     );
+  }
+
+  Future<bool> _friendSafe(String uid) async {
+    try {
+      return await widget.contactController.isFriend(uid);
+    } catch (_) {
+      return _isSaved(uid);
+    }
   }
 
   bool _isSaved(String uid) =>
@@ -623,7 +650,7 @@ class _ContactsScreenState extends State<ContactsScreen>
       return;
     }
     _busy = true;
-    if (!await widget.contactController.isFriend(call.fromUid)) {
+    if (!await _friendSafe(call.fromUid)) {
       _busy = false;
       return;
     }
@@ -861,6 +888,7 @@ class _ContactsScreenState extends State<ContactsScreen>
 
   Future<void> _callContact(ContactModel contact, {required bool video}) async {
     if (_busy) return;
+    if (!mounted) return;
     if (!NetStatus.online.value) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("You're offline. Can't call right now.")),
@@ -868,7 +896,7 @@ class _ContactsScreenState extends State<ContactsScreen>
       return;
     }
     _busy = true;
-    if (!await widget.contactController.isFriend(contact.uid)) {
+    if (!await _friendSafe(contact.uid)) {
       _busy = false;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1476,6 +1504,7 @@ void _openInbox() {
               fit: BoxFit.cover,
               cacheWidth: blurOn ? 48 : 1080,
               filterQuality: FilterQuality.medium,
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
             );
             bg = Stack(
               fit: StackFit.expand,

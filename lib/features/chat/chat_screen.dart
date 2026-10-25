@@ -11,7 +11,8 @@ import 'file_opener.dart';
 import 'photo_bubble.dart';
 import 'photo_bubble.dart';
 import 'voice_bubble.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/services.dart' hide HapticFeedback;
+import '../../utils/haptics.dart';
 import 'typing_service.dart';
 import 'typing_widgets.dart';
 import 'message_menu.dart';
@@ -94,7 +95,12 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _attach() async {
     final x = await openFile();
     if (x == null) return;
-    final err = await _chat.sendFile(File(x.path), x.name);
+    String? err;
+    try {
+      err = await _chat.sendFile(File(x.path), x.name);
+    } catch (_) {
+      err = 'Could not send the file. Try again.';
+    }
     if (err != null) _snack(err);
   }
 
@@ -202,7 +208,12 @@ class _ChatScreenState extends State<ChatScreen> {
       return err;
     }
     final r = _replying;
-    final err = await _chat.sendText(text, replyTo: r);
+    String? err;
+    try {
+      err = await _chat.sendText(text, replyTo: r);
+    } catch (_) {
+      err = 'Message not sent. Try again.';
+    }
     if (err == null && r != null && mounted) {
       setState(() => _replying = null);
     }
@@ -236,6 +247,7 @@ class _ChatScreenState extends State<ChatScreen> {
       canEdit: _chat.canEdit(m),
       mine: m.fromUid == widget.myUid,
     );
+    if (!mounted) return;
     if (c == 'reply') {
       _startReply(m);
     } else if (c == 'edit') {
@@ -419,7 +431,11 @@ class _ChatScreenState extends State<ChatScreen> {
       return Stack(
         fit: StackFit.expand,
         children: [
-          Image.file(File(wp), fit: BoxFit.cover),
+          Image.file(
+            File(wp),
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+          ),
           ColoredBox(color: s.surface.withOpacity(0.55)),
         ],
       );
@@ -502,6 +518,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       }
                       return ListView.builder(
                         reverse: true,
+                        addAutomaticKeepAlives: false,
                         controller: _scroll,
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         itemCount: items.length + 1,

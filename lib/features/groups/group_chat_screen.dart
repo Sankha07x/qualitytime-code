@@ -6,7 +6,9 @@ import '../../utils/user_avatar.dart';
 import '../chat/bubble_shell.dart';
 import '../chat/reply_widgets.dart';
 import '../contacts/contact_controller.dart';
+import '../chat/typing_widgets.dart';
 import 'group_chat_service.dart';
+import 'group_live_service.dart';
 import 'group_controller.dart';
 import 'group_status.dart';
 import 'groups_screen.dart';
@@ -59,8 +61,11 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   late final GroupChatService _svc =
       GroupChatService(groupId: widget.groupId, myUid: widget.myUid);
   final _ctrl = TextEditingController();
+  late final GroupLiveService _live =
+      GroupLiveService(groupId: widget.groupId, myUid: widget.myUid);
   final _hasText = ValueNotifier<bool>(false);
   bool _popped = false;
+  final _asked = <String>{};
   GroupMessage? _replying;
   GroupMessage? _editing;
 
@@ -68,11 +73,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   void initState() {
     super.initState();
     _svc.start();
+    _live.onNudge = _svc.refreshReceipts;
+    _svc.onMarked = _live.nudge;
+    _live.start();
     GroupStatus.markRead(widget.groupId);
     _svc.messages.addListener(_seen);
     _ctrl.addListener(() {
       final h = _ctrl.text.trim().isNotEmpty;
       if (h != _hasText.value) _hasText.value = h;
+      _live.setTyping(h && _editing == null);
     });
     NetStatus.online.addListener(_onNet);
   }
@@ -84,11 +93,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     NetStatus.online.removeListener(_onNet);
     _ctrl.dispose();
     _hasText.dispose();
+    _live.dispose();
     _svc.dispose();
     super.dispose();
   }
 
-  void _seen() => GroupStatus.markRead(widget.groupId);
+  void _seen() {
+    GroupStatus.markRead(widget.groupId);
+    _svc.markRead();
+  }
 
   void _startReply(GroupMessage m) {
     setState(() {
@@ -134,9 +147,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     HapticFeedback.lightImpact();
     final e = _editing;
     final r = _replying;
-    final err = e != null
-        ? await _svc.editText(e, t)
-        : await _svc.send(t, replyTo: r);
+    String? err;
+    try {
+      err = e != null
+          ? await _svc.editText(e, t)
+          : await _svc.send(t, replyTo: r);
+    } catch (_) {
+      err = 'Message not sent. Try again.';
+    }
     if (mounted) {
       if (e == null) {
         setState(() => _replying = null);
@@ -150,7 +168,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   Future<void> _retry(GroupMessage m) async {
-    final err = await _svc.send(m.body, retryId: m.id);
+    String? err;
+    try {
+      err = await _svc.send(m.body, retryId: m.id);
+    } catch (_) {
+      err = 'Message not sent. Try again.';
+    }
     if (err != null) _snack(err);
   }
 
@@ -174,6 +197,12 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               title: const Text('Reply'),
               onTap: () => Navigator.pop(ctx, 'reply'),
             ),
+            if (mine && !m.local && m.state == 0)
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('Message info'),
+                onTap: () => Navigator.pop(ctx, 'info'),
+              ),
             if (_svc.canEdit(m))
               ListTile(
                 leading: const Icon(Icons.edit_outlined),
@@ -191,6 +220,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ),
       ),
     );
+    if (!mounted) return;
     if (c == 'reply') {
       _startReply(m);
     } else if (c == 'edit') {
@@ -200,13 +230,143 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       });
       _ctrl.text = m.body;
       _ctrl.selection = TextSelection.collapsed(offset: m.body.length);
+    } else if (c == 'info') {
+      await _info(m);
     } else if (c == 'copy') {
       await Clipboard.setData(ClipboardData(text: m.body));
       _snack('Copied');
     } else if (c == 'del') {
-      final err = await _svc.delete(m);
+      String? err;
+      try {
+        err = await _svc.delete(m);
+      } catch (_) {
+        err = 'Could not delete. Try again.';
+      }
       if (err != null) _snack(err);
     }
+  }
+
+  Widget _subtitle(int count) {
+    final accent = Color(AppSettings.accent.value);
+    return ValueListenableBuilder<List<String>>(
+      valueListenable: _live.typing,
+      builder: (_, who, __) {
+        final names = [for (final u in who) widget.groupController.nameOf(u)];
+        String text;
+        if (names.isEmpty) {
+          text = '$count members';
+        } else if (names.length == 1) {
+          text = '${names[0]} is typing…';
+        } else if (names.length == 2) {
+          text = '${names[0]} and ${names[1]} are typing…';
+        } else {
+          text = '${names.length} people are typing…';
+        }
+        final t = names.isNotEmpty;
+        return Text(text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: t ? FontWeight.w600 : FontWeight.w400,
+                color: t ? accent : Colors.grey));
+      },
+    );
+  }
+
+  Widget _infoHead(String t) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+        child: Text(t,
+            style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Colors.grey)),
+      );
+
+  Widget _infoTile(String uid, IconData icon, Color c, DateTime? t) =>
+      ListTile(
+        dense: true,
+        leading: Icon(icon, color: c, size: 22),
+        title: Text(widget.groupController.nameOf(uid)),
+        trailing: t == null
+            ? null
+            : Text('${_day(t)}, ${hm(t)}',
+                style: const TextStyle(fontSize: 12, color: Colors.grey)),
+      );
+
+  Future<void> _info(GroupMessage m) async {
+    final g = widget.groupController.groups.value
+        .where((x) => x.id == widget.groupId)
+        .firstOrNull;
+    final others = [
+      for (final u in g?.members ?? <String>[])
+        if (u != widget.myUid) u,
+    ];
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+          child: FutureBuilder<List<Map<String, dynamic>>?>(
+            future: _svc.info(m.id),
+            builder: (_, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const SizedBox(
+                    height: 160,
+                    child: Center(child: CircularProgressIndicator()));
+              }
+              final rows = snap.data;
+              if (rows == null) {
+                return const SizedBox(
+                    height: 160,
+                    child: Center(
+                        child: Text('Could not load. Check your internet.')));
+              }
+              final read = <String, DateTime>{};
+              final got = <String, DateTime>{};
+              for (final r in rows) {
+                final u = r['uid'].toString();
+                final rd = r['read_at'];
+                final dl = r['delivered_at'];
+                if (rd != null) {
+                  read[u] = DateTime.parse(rd.toString()).toLocal();
+                } else if (dl != null) {
+                  got[u] = DateTime.parse(dl.toString()).toLocal();
+                }
+              }
+              final waiting = [
+                for (final u in others)
+                  if (!read.containsKey(u) && !got.containsKey(u)) u,
+              ];
+              return ListView(
+                shrinkWrap: true,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
+                    child: Text('Message info',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w700)),
+                  ),
+                  _infoHead('Read by (${read.length})'),
+                  for (final e in read.entries)
+                    _infoTile(e.key, Icons.done_all,
+                        const Color(0xFF53BDEB), e.value),
+                  _infoHead('Delivered, not read (${got.length})'),
+                  for (final e in got.entries)
+                    _infoTile(e.key, Icons.done_all, Colors.grey, e.value),
+                  _infoHead('Not delivered yet (${waiting.length})'),
+                  for (final u in waiting)
+                    _infoTile(u, Icons.done, Colors.grey, null),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   bool _sameDay(DateTime a, DateTime b) =>
@@ -218,6 +378,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     if (_sameDay(t, now.subtract(const Duration(days: 1)))) return 'Yesterday';
     return '${t.day.toString().padLeft(2, '0')}/'
         '${t.month.toString().padLeft(2, '0')}/${t.year}';
+  }
+
+  int _others() {
+    final g = widget.groupController.groups.value
+        .where((x) => x.id == widget.groupId)
+        .firstOrNull;
+    return g == null ? 0 : g.members.where((u) => u != widget.myUid).length;
   }
 
   Color _nameColor(String uid) =>
@@ -241,6 +408,16 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         ],
       );
     }
+    final others = _others();
+    final r = _svc.receipts.value[m.id];
+    final got = r == null ? 0 : r[0];
+    final seen = r == null ? 0 : r[1];
+    if (others > 0 && seen >= others) {
+      return const Icon(Icons.done_all, size: 15, color: Color(0xFF53BDEB));
+    }
+    if (others > 0 && got >= others) {
+      return const Icon(Icons.done_all, size: 15, color: Colors.white70);
+    }
     return const Icon(Icons.done, size: 14, color: Colors.white70);
   }
 
@@ -250,7 +427,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     final name = widget.groupController.nameOf(m.fromUid);
     final photos = widget.contactController.photos.value;
     if (!mine && !photos.containsKey(m.fromUid)) {
-      widget.contactController.fetchPhoto(m.fromUid);
+      if (_asked.add(m.fromUid)) widget.contactController.fetchPhoto(m.fromUid);
     }
     final content = GestureDetector(
       onTap: m.state == 2 ? () => _retry(m) : null,
@@ -358,6 +535,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         _svc.messages,
         _svc.loading,
         _svc.loadError,
+        _svc.receipts,
         widget.contactController.photos,
         widget.groupController.names,
       ]),
@@ -506,9 +684,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                               fontSize: 17, fontWeight: FontWeight.w700)),
-                      Text('${g.members.length} members',
-                          style: const TextStyle(
-                              fontSize: 12, color: Colors.grey)),
+                      _subtitle(g.members.length),
                     ],
                   ),
                 ),
@@ -542,6 +718,16 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                         ),
                 ),
                 Expanded(child: _messages()),
+                ValueListenableBuilder<List<String>>(
+                  valueListenable: _live.typing,
+                  builder: (_, who, __) => AnimatedSize(
+                    duration: const Duration(milliseconds: 150),
+                    alignment: Alignment.bottomLeft,
+                    child: who.isEmpty
+                        ? const SizedBox.shrink()
+                        : const TypingBubble(),
+                  ),
+                ),
                 if (member)
                   Column(
                     mainAxisSize: MainAxisSize.min,

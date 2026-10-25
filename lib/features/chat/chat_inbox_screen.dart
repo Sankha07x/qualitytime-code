@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -61,6 +62,7 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
   @override
   void dispose() {
     widget.contactController.contacts.removeListener(_onContacts);
+    _deb?.cancel();
     _ch?.unsubscribe();
     super.dispose();
   }
@@ -80,7 +82,32 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
         : '${_two(t.day)}/${_two(t.month)}';
   }
 
-  Future<void> _load() async {
+  Timer? _deb;
+  bool _running = false;
+  bool _again = false;
+
+  void _load() {
+    _deb?.cancel();
+    _deb = Timer(const Duration(milliseconds: 350), () async {
+      if (_running) {
+        _again = true;
+        return;
+      }
+      _running = true;
+      try {
+        await _loadNow();
+      } catch (_) {
+        if (mounted) setState(() => _loading = false);
+      }
+      _running = false;
+      if (_again && mounted) {
+        _again = false;
+        _load();
+      }
+    });
+  }
+
+  Future<void> _loadNow() async {
     final me = widget.myUid;
     final db = Supabase.instance.client;
     final contacts = widget.contactController.contacts.value;

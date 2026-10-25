@@ -34,6 +34,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
     duration: const Duration(seconds: 3),
   )..repeat();
 
+  bool _answered = false;
   Timer? _buzz;
   Timer? _stopSound;
   final _tonePlayer = AudioPlayer();
@@ -47,6 +48,12 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
     _startSound();
     _stopSound = Timer(const Duration(seconds: 30), () => _tonePlayer.stop());
     _buzz = Timer.periodic(const Duration(seconds: 2), (_) => _ring());
+  }
+
+  void _answer(bool accept) {
+    if (_answered) return;
+    _answered = true;
+    Navigator.of(context).pop(accept);
   }
 
   void _ring() {
@@ -263,14 +270,14 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
                         color: Colors.red,
                         icon: Icons.call_end,
                         label: 'Decline',
-                        onTap: () => Navigator.of(context).pop(false),
+                        onTap: () => _answer(false),
                       ),
                       _action(
                         color: Colors.green,
                         icon: widget.video ? Icons.videocam : Icons.call,
                         label: 'Accept',
                         bounce: true,
-                        onTap: () => Navigator.of(context).pop(true),
+                        onTap: () => _answer(true),
                       ),
                     ],
                   ),

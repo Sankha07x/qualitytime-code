@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/services.dart' hide HapticFeedback;
+import '../../utils/haptics.dart';
 import '../../utils/glass.dart';
 import '../../utils/settings/app_settings.dart';
 import '../voice/voice_service.dart';
@@ -48,7 +49,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
     _ctrl.addListener(() {
       final h = _ctrl.text.trim().isNotEmpty;
       widget.onTyping?.call(h);
-      if (h != _hasText) setState(() => _hasText = h);
+      if (h != _hasText && mounted) setState(() => _hasText = h);
     });
   }
 
@@ -99,6 +100,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
     if (t.trim().isEmpty) return;
     _ctrl.clear();
     final err = await widget.onSendText(t);
+    if (err == null) HapticFeedback.lightImpact();
     if (err != null && mounted) {
       _ctrl.text = t;
       widget.onMessage(err);
@@ -106,8 +108,16 @@ class _ChatInputBarState extends State<ChatInputBar> {
   }
 
   Future<void> _startRec() async {
+    if (_recording) return;
     widget.onRecordStart();
-    if (!await widget.voice.startRecording()) {
+    bool started = false;
+    try {
+      started = await widget.voice.startRecording();
+    } catch (_) {
+      started = false;
+    }
+    if (!mounted) return;
+    if (!started) {
       widget.onMessage('Microphone permission is needed.');
       return;
     }
@@ -129,18 +139,29 @@ class _ChatInputBarState extends State<ChatInputBar> {
     _timer?.cancel();
     _amp?.cancel();
     _level.value = 0;
-    setState(() => _recording = false);
+    if (mounted) setState(() => _recording = false);
     if (!send) {
+      HapticFeedback.selectionClick();
       await widget.voice.cancelRecording();
       return;
     }
-    final r = await widget.voice.stopRecording();
+    dynamic r;
+    try {
+      r = await widget.voice.stopRecording();
+    } catch (_) {
+      r = null;
+    }
     if (r == null) {
       widget.onMessage('Too short. Record for at least a second.');
       return;
     }
     if (mounted) setState(() => _sending = true);
-    final err = await widget.voice.send(r.file, r.seconds);
+    String? err;
+    try {
+      err = await widget.voice.send(r.file, r.seconds);
+    } catch (_) {
+      err = 'Voice message not sent. Try again.';
+    }
     if (mounted) setState(() => _sending = false);
     if (err != null) {
       widget.onMessage(err);
@@ -217,7 +238,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
               ),
             if (!_recording && !_hasText) _quickReplies(),
         Glass(
-              blur: 12,
+              blur: 0,
               tint: s.surface,
               opacity: 0.55,
               borderRadius: BorderRadius.circular(32),

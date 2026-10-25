@@ -16,11 +16,27 @@ class _AddContactScreenState extends State<AddContactScreen> {
   final _uidController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
+  final _working = <String>{};
+
+  Future<void> _act(String id, Future<dynamic> Function() f) async {
+    if (!_working.add(id)) return;
+    try {
+      await f();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed. Check your internet.')),
+        );
+      }
+    } finally {
+      _working.remove(id);
+    }
+  }
 
   Future<void> _paste() async {
     final d = await Clipboard.getData('text/plain');
     final t = d?.text?.trim() ?? '';
-    if (t.isNotEmpty) setState(() => _uidController.text = t);
+    if (t.isNotEmpty && mounted) setState(() => _uidController.text = t);
   }
 
   Future<void> _submit() async {
@@ -54,7 +70,12 @@ class _AddContactScreenState extends State<AddContactScreen> {
       return;
     }
 
-    final err = await widget.contactController.sendFriendRequest(uid);
+    String? err;
+    try {
+      err = await widget.contactController.sendFriendRequest(uid);
+    } catch (_) {
+      err = 'Could not send. Check your internet.';
+    }
     if (!mounted) return;
     if (err != null) {
       setState(() {
@@ -220,12 +241,14 @@ class _AddContactScreenState extends State<AddContactScreen> {
                             tooltip: 'Decline',
                             icon: const Icon(Icons.close,
                                 color: Colors.redAccent),
-                            onPressed: () => cc.declineRequest(r['id']!),
+                            onPressed: () => _act(r['id']!,
+                                () async => cc.declineRequest(r['id']!)),
                           ),
                           IconButton(
                             tooltip: 'Accept',
                             icon: const Icon(Icons.check, color: Colors.green),
-                            onPressed: () => cc.acceptRequest(r['id']!),
+                            onPressed: () => _act(r['id']!,
+                                () async => cc.acceptRequest(r['id']!)),
                           ),
                         ],
                       ),
@@ -259,7 +282,8 @@ class _AddContactScreenState extends State<AddContactScreen> {
                       title: Text(r['name'] ?? ''),
                       subtitle: const Text('Waiting for reply'),
                       trailing: TextButton(
-                        onPressed: () => cc.cancelRequest(r['id']!),
+                        onPressed: () => _act(r['id']!,
+                            () async => cc.cancelRequest(r['id']!)),
                         child: const Text('Cancel'),
                       ),
                     ),

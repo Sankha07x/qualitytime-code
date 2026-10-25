@@ -6,6 +6,7 @@ import '../../utils/user_avatar.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'call_controller.dart';
 import 'animated_call_button.dart';
+import 'voice_rings.dart';
 import 'quality_sheet.dart';
 import '../../core/webrtc/quality_choice.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -606,6 +607,27 @@ class _CallScreenState extends State<CallScreen> {
                     ],
                   );
                 },
+              ),
+            ),
+
+            // Voice animation: rings that move with the other person's voice
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: Listenable.merge([
+                    widget.controller.remoteStream,
+                    widget.controller.remoteCameraOn,
+                  ]),
+                  builder: (context, _) {
+                    final s = widget.controller.remoteStream.value;
+                    final hasVideo =
+                        s != null && s.getVideoTracks().isNotEmpty;
+                    if (hasVideo && widget.controller.remoteCameraOn.value) {
+                      return const SizedBox.shrink();
+                    }
+                    return VoiceRings(level: widget.controller.voiceLevel);
+                  },
+                ),
               ),
             ),
 

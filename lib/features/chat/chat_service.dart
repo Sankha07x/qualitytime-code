@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../utils/haptics.dart';
 
 class ChatMessage {
   final String id;
@@ -125,6 +126,7 @@ class ChatService {
 
   Future<void> _add(ChatMessage m) async {
     if (_disposed || messages.value.any((x) => x.id == m.id)) return;
+    if (m.fromUid == peerUid && _ch != null) Haptics.medium();
     final list = [...messages.value, m]
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     messages.value = list;

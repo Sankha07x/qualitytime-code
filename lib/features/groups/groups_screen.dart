@@ -7,6 +7,7 @@ import 'group_detail_screen.dart';
 import 'group_call_screen.dart';
 import 'group_chat_screen.dart';
 import 'group_status.dart';
+import '../../utils/net_status.dart';
 
 const _emojis = [
   '🎉', '🔥', '🎮', '🎵', '🍕', '⚽',
@@ -115,6 +116,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
   Timer? _poll;
 
   Future<void> _loadLive() async {
+    if (!NetStatus.online.value) return;
     GroupStatus.refresh(widget.myUid);
     try {
       final since = DateTime.now()
@@ -311,13 +313,18 @@ class _GroupsScreenState extends State<GroupsScreen> {
     if (ok != true || name.text.trim().isEmpty || !mounted) return;
     final uids = await pickFriends(context, widget.contactController);
     if (uids == null || !mounted) return;
-    final err = await _gc.create(
+    String? err;
+    try {
+      err = await _gc.create(
       name.text,
       uids,
       emoji: emoji,
       color: color,
       mode: mode,
     );
+    } catch (_) {
+      err = 'Could not create the group. Check your internet.';
+    }
     if (err != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
     }

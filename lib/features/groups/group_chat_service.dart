@@ -77,6 +77,11 @@ class GroupChatService {
   final messages = ValueNotifier<List<GroupMessage>>([]);
   final loading = ValueNotifier<bool>(true);
   final loadError = ValueNotifier<String?>(null);
+  final receipts = ValueNotifier<Map<String, List<int>>>({});
+  VoidCallback? onMarked;
+  Timer? _markT;
+  Timer? _tickT;
+  DateTime _markedUpTo = DateTime.fromMillisecondsSinceEpoch(0);
   RealtimeChannel? _ch;
   bool _disposed = false;
   bool _loadingNow = false;
@@ -90,6 +95,9 @@ class GroupChatService {
   Future<void> start() async {
     await load();
     if (_disposed) return;
+    refreshReceipts();
+    _tickT = Timer.periodic(
+        const Duration(seconds: 8), (_) => refreshReceipts());
     _ch = _c
         .channel('gchat:$groupId')
         .onPostgresChanges(
@@ -338,9 +346,71 @@ class GroupChatService {
     }
   }
 
+  /// Tell the group I have read their messages (waits a moment first).
+  void markRead() {
+    if (_disposed) return;
+    _markT?.cancel();
+    _markT = Timer(const Duration(milliseconds: 800), _doMark);
+  }
+
+  Future<void> _doMark() async {
+    if (_disposed) return;
+    DateTime? newest;
+    for (final m in messages.value) {
+      if (m.fromUid == myUid || m.local) continue;
+      if (newest == null || m.createdAt.isAfter(newest)) newest = m.createdAt;
+    }
+    if (newest == null || !newest.isAfter(_markedUpTo)) return;
+    try {
+      await _c.rpc('mark_group_read',
+          params: {'p_group': groupId, 'p_uid': myUid});
+      _markedUpTo = newest;
+      onMarked?.call();
+    } catch (e) {
+      debugPrint('GCHAT mark read failed: $e');
+    }
+  }
+
+  /// Fills receipts: message id -> [delivered count, read count].
+  Future<void> refreshReceipts() async {
+    if (_disposed) return;
+    if (!messages.value.any((m) => m.fromUid == myUid && !m.local)) return;
+    try {
+      final rows = await _c.rpc('group_receipt_summary',
+          params: {'p_group': groupId, 'p_uid': myUid});
+      final map = <String, List<int>>{};
+      for (final r in rows as List) {
+        map[r['message_id'].toString()] = [
+          (r['delivered_n'] as num).toInt(),
+          (r['read_n'] as num).toInt(),
+        ];
+      }
+      if (!_disposed) receipts.value = map;
+    } catch (e) {
+      debugPrint('GCHAT receipts failed: $e');
+    }
+  }
+
+  /// Who has seen one of my messages. Rows have uid, delivered_at, read_at.
+  Future<List<Map<String, dynamic>>?> info(String messageId) async {
+    try {
+      final rows = await _c.rpc('group_message_info',
+          params: {'p_msg': messageId, 'p_uid': myUid});
+      return [
+        for (final r in rows as List) Map<String, dynamic>.from(r),
+      ];
+    } catch (e) {
+      debugPrint('GCHAT info failed: $e');
+      return null;
+    }
+  }
+
   void dispose() {
     _disposed = true;
+    _markT?.cancel();
+    _tickT?.cancel();
     _ch?.unsubscribe();
+    receipts.dispose();
     messages.dispose();
     loading.dispose();
     loadError.dispose();

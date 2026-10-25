@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
-/// Light slide transition used for every screen in the app.
-/// Only moves the page (no fade, no clip, no scale) so glass blur stays smooth.
+/// Fast, classy page transition: the new page slides in while the old page
+/// moves back a little. Only moves pages (no fade, no clip, no scale).
 class WaterTransitionsBuilder extends PageTransitionsBuilder {
   const WaterTransitionsBuilder();
 
   @override
-  Duration get transitionDuration => const Duration(milliseconds: 300);
+  Duration get transitionDuration => const Duration(milliseconds: 260);
 
   @override
-  Duration get reverseTransitionDuration => const Duration(milliseconds: 260);
+  Duration get reverseTransitionDuration => const Duration(milliseconds: 220);
 
   @override
   Widget buildTransitions<T>(
@@ -19,18 +19,32 @@ class WaterTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
-    final slide = animation
+    final enter = animation
         .drive(CurveTween(curve: Curves.easeOutCubic))
-        .drive(Tween<Offset>(begin: const Offset(0.12, 0), end: Offset.zero));
-    return SlideTransition(position: slide, child: child);
+        .drive(Tween<Offset>(begin: const Offset(0.10, 0), end: Offset.zero));
+    final leave = secondaryAnimation
+        .drive(CurveTween(curve: Curves.easeOutCubic))
+        .drive(Tween<Offset>(begin: Offset.zero, end: const Offset(-0.04, 0)));
+    return SlideTransition(
+      position: leave,
+      child: SlideTransition(
+        position: enter,
+        child: RepaintBoundary(child: child),
+      ),
+    );
   }
 }
 
-/// Soft bouncing scroll for every list.
+/// Soft bouncing scroll for every list, without the Android glow.
 class WaterScrollBehavior extends MaterialScrollBehavior {
   const WaterScrollBehavior();
 
   @override
   ScrollPhysics getScrollPhysics(BuildContext context) =>
       const BouncingScrollPhysics();
+
+  @override
+  Widget buildOverscrollIndicator(
+          BuildContext context, Widget child, ScrollableDetails details) =>
+      child;
 }

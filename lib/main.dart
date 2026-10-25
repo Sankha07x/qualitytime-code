@@ -19,12 +19,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'utils/settings/app_settings.dart';
 import 'utils/glass.dart';
 import 'utils/splash_screen.dart';
+import 'utils/perf_guard.dart';
+import 'package:flutter_displaymode/flutter_displaymode.dart';
 
 final GlobalKey<NavigatorState> appNavKey = GlobalKey<NavigatorState>();
 
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterError.onError =
+      (d) => debugPrint('FLUTTER ERROR: ${d.exceptionAsString()}');
+  WidgetsBinding.instance.platformDispatcher.onError = (e, s) {
+    debugPrint('UNCAUGHT: $e');
+    return true;
+  };
+  ErrorWidget.builder = (d) => const SizedBox.shrink();
+  if (!kIsWeb) {
+    FlutterDisplayMode.setHighRefreshRate().catchError((_) {});
+  }
 
   // Push setup is skipped on web (Chrome has no FCM service worker here)
   // and can never block the app from starting.
@@ -35,8 +47,11 @@ Future<void> main() async {
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
       final messaging = FirebaseMessaging.instance;
       await messaging.requestPermission();
-      final token = await messaging.getToken();
-      debugPrint('FCM TOKEN: $token');
+      messaging
+          .getToken()
+          .then((t) => debugPrint('FCM TOKEN: $t'))
+          .catchError((_) {});
+      // token is printed in the background above
     } catch (e) {
       debugPrint('Firebase/FCM setup skipped: $e');
     }
@@ -54,8 +69,13 @@ Future<void> main() async {
   try {
     await CallNotification.checkLaunchAction();
   } catch (_) {}
-  await AppSettings.load();
+  try {
+    await AppSettings.load();
+  } catch (e) {
+    debugPrint('Settings load: $e');
+  }
   runApp(const P2PCallApp());
+  Future.delayed(const Duration(seconds: 10), PerfGuard.start);
   UpdateService.instance.start(appNavKey);
   CallNotification.openCallListener = ActiveCall.returnToCall;
   CallNotification.endCallListener = ActiveCall.hangUpRunning;

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 /// Reusable frosted-glass surface. Set [blurOn] to false to turn all blur
 /// off (the translucent look stays, and it is the cheapest on slow phones).
 class Glass extends StatelessWidget {
-  static const bool blurOn = true;
+  static bool blurOn = true;
 
   final Widget child;
   final BorderRadius borderRadius;

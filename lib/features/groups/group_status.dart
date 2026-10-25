@@ -8,6 +8,7 @@ class GroupStatus {
 
   static final live = ValueNotifier<Map<String, bool>>({});
   static final unread = ValueNotifier<Map<String, int>>({});
+  static final _delivered = <String>{};
   static bool _busy = false;
 
   static Future<void> refresh(String myUid) async {
@@ -38,7 +39,7 @@ class GroupStatus {
       }
       final rows = await c
           .from('group_messages')
-          .select('group_id, created_at')
+          .select('id, group_id, created_at')
           .neq('from_uid', myUid)
           .order('created_at', ascending: false)
           .limit(300);
@@ -51,6 +52,14 @@ class GroupStatus {
         if (t > seen) counts[gid] = (counts[gid] ?? 0) + 1;
       }
       unread.value = counts;
+
+      final fresh = [
+        for (final r in rows as List) r['id'].toString(),
+      ].where((id) => !_delivered.contains(id)).toList();
+      if (fresh.isNotEmpty) {
+        await c.rpc('mark_group_delivered', params: {'p_uid': myUid});
+        _delivered.addAll(fresh);
+      }
     } catch (e) {
       debugPrint('GROUP STATUS failed: $e');
     } finally {
