@@ -12,6 +12,8 @@ import 'group_live_service.dart';
 import 'group_controller.dart';
 import 'group_status.dart';
 import 'groups_screen.dart';
+import '../chat/locked_chat_view.dart';
+import '../../utils/settings/chat_prefs.dart';
 
 const _nameColors = <int>[
   0xFF0D9488, 0xFF2563EB, 0xFF7C3AED, 0xFFDB2777,
@@ -65,6 +67,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       GroupLiveService(groupId: widget.groupId, myUid: widget.myUid);
   final _hasText = ValueNotifier<bool>(false);
   bool _popped = false;
+  bool _unlocked = false;
   final _asked = <String>{};
   GroupMessage? _replying;
   GroupMessage? _editing;
@@ -667,10 +670,46 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           return const Scaffold();
         }
         final member = g.isOwner || g.members.contains(widget.myUid);
+        if (ChatPrefs.locked.value.contains('g:${widget.groupId}') &&
+            !_unlocked) {
+          return LockedChatView(
+              onUnlock: () => setState(() => _unlocked = true));
+        }
         final s = Theme.of(context).colorScheme;
         return Scaffold(
           appBar: AppBar(
             titleSpacing: 0,
+            actions: [
+              AnimatedBuilder(
+                animation:
+                    Listenable.merge([ChatPrefs.muted, ChatPrefs.locked]),
+                builder: (context, _) {
+                  final key = 'g:${widget.groupId}';
+                  final isMuted = ChatPrefs.muted.value.contains(key);
+                  final isLocked = ChatPrefs.locked.value.contains(key);
+                  return PopupMenuButton<String>(
+                    onSelected: (v) {
+                      if (v == 'mute') ChatPrefs.setMuted(key, !isMuted);
+                      if (v == 'lock') {
+                        toggleChatLock(context, key, !isLocked);
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        value: 'mute',
+                        child: Text(isMuted
+                            ? 'Unmute notifications'
+                            : 'Mute notifications'),
+                      ),
+                      PopupMenuItem(
+                        value: 'lock',
+                        child: Text(isLocked ? 'Unlock chat' : 'Lock chat'),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
             title: Row(
               children: [
                 GroupAvatar(g: g, size: 38),

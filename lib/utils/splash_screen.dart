@@ -1,8 +1,8 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
-/// Opening animation: the logo ring spirals open into a line,
-/// then the line opens into the app name.
+/// Opening animation: two people connect through the logo's dots,
+/// talk, and the line becomes the app name.
 class SplashScreen extends StatefulWidget {
   final VoidCallback onDone;
   const SplashScreen({super.key, required this.onDone});
@@ -23,7 +23,8 @@ class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1400),
+    // Total time of the whole animation. Make it smaller to go faster.
+    duration: const Duration(milliseconds: 3200),
   );
   bool _done = false;
 
@@ -55,41 +56,61 @@ class _SplashScreenState extends State<SplashScreen>
       onTap: _finish,
       child: Scaffold(
         backgroundColor: const Color(0xFF042F2E),
-        body: AnimatedBuilder(
-          animation: _c,
-          builder: (context, _) {
-            final t = _c.value;
-            final wf = _seg(t, 0.55, 0.74, Curves.easeOutCubic);
-            final hf = _seg(t, 0.60, 0.80, Curves.easeOutCubic);
-            final out = _o(1 - _seg(t, 0.92, 1.0));
-            return Opacity(
-              opacity: out,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  CustomPaint(painter: _SplashPainter(t, s)),
-                  Center(
-                    child: ClipRect(
-                      child: Align(
-                        widthFactor: math.max(wf, 0.001),
-                        heightFactor: math.max(hf, 0.001),
-                        child: Text(
-                          'QualityTime',
-                          softWrap: false,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 28 * s,
-                            fontWeight: FontWeight.w300,
-                            letterSpacing: 3,
+        body: LayoutBuilder(
+          builder: (context, box) => AnimatedBuilder(
+            animation: _c,
+            builder: (context, _) {
+              final t = _c.value;
+              final wf = _seg(t, 0.70, 0.78, Curves.easeOutCubic);
+              final hf = _seg(t, 0.73, 0.80, Curves.easeOutCubic);
+              final tag = _seg(t, 0.78, 0.86);
+              final out = _o(1 - _seg(t, 0.97, 1.0));
+              return Opacity(
+                opacity: out,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CustomPaint(painter: _SplashPainter(t, s)),
+                    Center(
+                      child: ClipRect(
+                        child: Align(
+                          widthFactor: math.max(wf, 0.001),
+                          heightFactor: math.max(hf, 0.001),
+                          child: Text(
+                            'QualityTime',
+                            softWrap: false,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 28 * s,
+                              fontWeight: FontWeight.w300,
+                              letterSpacing: 3,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            );
-          },
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      top: box.maxHeight / 2 + 30 * s,
+                      child: Opacity(
+                        opacity: tag,
+                        child: Text(
+                          'Quality calls, valuable time',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.6),
+                            fontSize: 13 * s,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -103,72 +124,111 @@ class _SplashPainter extends CustomPainter {
 
   static const _teal = Color(0xFF2DD4BF);
 
+  Paint _stroke(Color c, double w) => Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round
+    ..strokeWidth = w
+    ..color = c;
+
   @override
   void paint(Canvas canvas, Size size) {
     final c = size.center(Offset.zero);
-    final r = 56 * s;
-    final len = math.min(size.width * 0.75, 260 * s);
-    final draw = _seg(t, 0.0, 0.20, Curves.easeOut);
-    final m = _seg(t, 0.22, 0.55, Curves.easeInOutCubic);
-    final lineFade = 1 - _seg(t, 0.58, 0.78);
+    final erase = _seg(t, 0.08, 0.18, Curves.easeInOut);
+    final walk = _seg(t, 0.18, 0.34, Curves.easeOut);
+    final reach = _seg(t, 0.30, 0.38);
+    final expand = _seg(t, 0.34, 0.45, Curves.easeInOutCubic);
+    final ear = _seg(t, 0.45, 0.52, Curves.easeInOut);
+    final back = _seg(t, 0.62, 0.72, Curves.easeInOut);
+    final fig = 1 - _seg(t, 0.60, 0.70);
+    final lineA = 1 - _seg(t, 0.72, 0.80);
+    final talk = _seg(t, 0.50, 0.54) * (1 - _seg(t, 0.60, 0.64));
+    final up = ear * (1 - back);
 
-    // ring that unwinds into a line
-    const n = 90;
-    final count = (n * draw).ceil();
-    final path = Path();
-    for (var i = 0; i <= count; i++) {
-      final u = i / n;
-      final mi = Curves.easeInOut.transform(_o(m * 1.7 - u * 0.7));
-      final ang = -math.pi / 2 + u * 0.92 * 2 * math.pi - (1 - draw) * math.pi;
-      final rad = r * (1 - 0.6 * mi);
-      final sp = Offset(
-        c.dx + math.cos(ang + mi * math.pi * 1.2) * rad,
-        c.dy + math.sin(ang + mi * math.pi * 1.2) * rad,
+    // outer ring disappears
+    if (erase < 1) {
+      canvas.drawArc(
+        Rect.fromCircle(center: c, radius: 56 * s),
+        -math.pi / 2,
+        2 * math.pi * (1 - erase),
+        false,
+        _stroke(_teal, 4 * s),
       );
-      final lp = Offset(c.dx - len / 2 + u * len, c.dy);
-      final p = Offset.lerp(sp, lp, mi)!;
+    }
+
+    // the connection: dot - wave - dot
+    final dotX = (27 + 93 * expand) * s + 22 * s * up;
+    final dotY = c.dy - 22 * s * up;
+    final half = 14 * s + (dotX - 20 * s) * expand;
+    final amp = (5 + 5 * expand) * s * (1 - back);
+    final dip = 16 * s * up;
+    final path = Path();
+    const n = 48;
+    for (var i = 0; i <= n; i++) {
+      final u = i / n;
+      final x = c.dx - half + u * 2 * half;
+      final y = dotY +
+          amp * math.sin(u * 2 * math.pi) +
+          dip * math.sin(u * math.pi);
       if (i == 0) {
-        path.moveTo(p.dx, p.dy);
+        path.moveTo(x, y);
       } else {
-        path.lineTo(p.dx, p.dy);
+        path.lineTo(x, y);
       }
     }
-    canvas.drawPath(
-      path,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..strokeWidth = 4 * s
-        ..color = _teal.withOpacity(_o(lineFade)),
-    );
+    canvas.drawPath(path, _stroke(_teal.withOpacity(_o(lineA)), 4 * s));
+    final dotPaint = Paint()..color = _teal;
+    canvas.drawCircle(Offset(c.dx - dotX, dotY), 5.5 * s, dotPaint);
+    canvas.drawCircle(Offset(c.dx + dotX, dotY), 5.5 * s, dotPaint);
 
-    // wave in the middle, fades as the ring opens
-    final waveA = _o(draw * (1 - _seg(t, 0.20, 0.34)));
-    if (waveA > 0) {
-      final w = Path()
-        ..moveTo(c.dx - 14 * s, c.dy - 5 * s)
-        ..cubicTo(c.dx - 4 * s, c.dy - 10 * s, c.dx - 2 * s, c.dy + 5 * s,
-            c.dx + 6 * s, c.dy + 5 * s)
-        ..lineTo(c.dx + 13 * s, c.dy + 5 * s);
-      canvas.drawPath(
-        w,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round
-          ..strokeWidth = 4 * s
-          ..color = _teal.withOpacity(waveA),
-      );
+    // the two people
+    if (fig > 0) {
+      final edge = size.width / 2 + 30 * s;
+      final stand = 152 * s;
+      final dist = edge + (stand - edge) * walk;
+      _man(canvas, c.dy, c.dx - dist, 1, Offset(c.dx - dotX, dotY), walk,
+          reach, talk, fig);
+      _man(canvas, c.dy, c.dx + dist, -1, Offset(c.dx + dotX, dotY), walk,
+          reach, talk, fig);
     }
+  }
 
-    // two dots: inside the ring first, then the ends of the line
-    final dm = Curves.easeInOut.transform(m);
-    // dots travel with the same easing as the ring
-    final dotX = 27 * s + (len / 2 - 27 * s) * dm;
-    final dotR = (5.5 - 1.5 * dm) * s;
-    final dotPaint = Paint()..color = _teal.withOpacity(_o(draw));
-    canvas.drawCircle(Offset(c.dx - dotX, c.dy), dotR, dotPaint);
-    canvas.drawCircle(Offset(c.dx + dotX, c.dy), dotR, dotPaint);
+  void _man(Canvas canvas, double cy, double x, double dir, Offset dot,
+      double walk, double reach, double talk, double a) {
+    final p = _stroke(Colors.white.withOpacity(_o(a * 0.92)), 2.4 * s);
+    final hy = cy - 22 * s;
+    canvas.drawCircle(Offset(x, hy), 7 * s, p);
+    canvas.drawLine(Offset(x, cy - 15 * s), Offset(x, cy + 8 * s), p);
+    final sw = walk < 1 ? math.sin(t * 110) * 9 * s : 0.0;
+    canvas.drawLine(
+        Offset(x, cy + 8 * s), Offset(x - 4 * s + sw, cy + 30 * s), p);
+    canvas.drawLine(
+        Offset(x, cy + 8 * s), Offset(x + 4 * s - sw, cy + 30 * s), p);
+    final sh = Offset(x, cy - 12 * s);
+    canvas.drawLine(sh, Offset(x - dir * 9 * s, cy + 2 * s), p);
+    final hang = Offset(x + dir * 7 * s, cy + 4 * s);
+    var tgt = Offset.lerp(hang, dot, reach)!;
+    final v = tgt - sh;
+    final d = v.distance;
+    if (d > 36 * s) tgt = sh + v / d * (36 * s);
+    canvas.drawLine(sh, tgt, p);
+
+    // sound waves while talking
+    if (talk > 0) {
+      final base = dir > 0 ? 0.0 : math.pi;
+      final k = 0.5 + 0.5 * math.sin(t * 140);
+      for (var i = 0; i < 2; i++) {
+        final al = _o(talk * (i == 0 ? k : 1 - k) * 0.9);
+        canvas.drawArc(
+          Rect.fromCircle(
+              center: Offset(x + dir * 14 * s, hy), radius: (10 + i * 6) * s),
+          base - 0.8,
+          1.6,
+          false,
+          _stroke(_teal.withOpacity(al), 2 * s),
+        );
+      }
+    }
   }
 
   @override

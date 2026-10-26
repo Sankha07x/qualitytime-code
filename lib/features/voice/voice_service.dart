@@ -13,6 +13,7 @@ class VoiceMessage {
   final int seconds;
   final DateTime createdAt;
   final DateTime? playedAt;
+  final bool viewOnce;
   const VoiceMessage({
     required this.id,
     required this.fromUid,
@@ -21,9 +22,11 @@ class VoiceMessage {
     required this.seconds,
     required this.createdAt,
     required this.playedAt,
+    this.viewOnce = false,
   });
 
   factory VoiceMessage.fromRow(Map<String, dynamic> r) => VoiceMessage(
+        viewOnce: r['view_once'] == true,
         id: r['id'] as String,
         fromUid: r['from_uid'] as String,
         toUid: r['to_uid'] as String,
@@ -159,7 +162,7 @@ class VoiceService {
   // ---------- send ----------
 
   /// Returns an error text, or null on success.
-  Future<String?> send(File f, int seconds) async {
+  Future<String?> send(File f, int seconds, {bool viewOnce = false}) async {
     final path = '$myUid/${DateTime.now().millisecondsSinceEpoch}.m4a';
     try {
       await _c.storage.from('voice').upload(
@@ -179,11 +182,12 @@ class VoiceService {
             'to_uid': peerUid,
             'path': path,
             'seconds': seconds,
+            if (viewOnce) 'view_once': true,
           })
           .select('id')
           .single();
       final id = row['id'] as String;
-      await f.copy((await _local(id)).path); // my own copy for replay
+      if (!viewOnce) await f.copy((await _local(id)).path); // my own copy for replay
       _tryDelete(f.path);
       unawaited(_push(seconds));
       await refresh();
@@ -244,6 +248,14 @@ class VoiceService {
     } catch (e) {
       debugPrint('VOICE mark played failed: $e');
     }
+  }
+
+  /// View-once message was played: remove the audio from this phone.
+  Future<void> consume(VoiceMessage m) async {
+    try {
+      final l = await _local(m.id);
+      if (await l.exists()) await l.delete();
+    } catch (_) {}
   }
 
   Future<void> delete(VoiceMessage m) async {

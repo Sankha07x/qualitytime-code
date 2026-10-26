@@ -29,6 +29,7 @@ import '../chat/chat_screen.dart';
 import 'dart:io' show File;
 import '../../utils/settings/app_settings.dart';
 import '../../utils/haptics.dart';
+import '../../utils/settings/chat_prefs.dart';
 import 'dart:ui' show ImageFilter;
 import '../../utils/glass.dart';
 import '../settings/settings_screen.dart';
@@ -1373,7 +1374,9 @@ void _openInbox() {
         builder: (context, u, _) {
           final n = u[contact.uid] ?? 0;
           if (n == 0) return Text(contact.uid);
-          final pv = _preview.value[contact.uid] ?? '';
+          final pv = ChatPrefs.locked.value.contains('u:${contact.uid}')
+              ? ''
+              : (_preview.value[contact.uid] ?? '');
           return Text(
             pv.isEmpty
                 ? 'New message from ${contact.displayName}'

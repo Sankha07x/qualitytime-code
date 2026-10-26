@@ -517,6 +517,28 @@ class CallNotification {
   /// Chat, missed call or friend request alert (app closed or in background).
   static Future<void> showInfo(Map<String, dynamic> data) async {
     try {
+      const calls = {'missed_call', 'friend_request', 'group_call'};
+      final kind = data['kind']?.toString() ?? '';
+      if (!calls.contains(kind)) {
+        final gid = data['group_id']?.toString() ?? '';
+        final uid = data['from_uid']?.toString() ?? '';
+        final key =
+            (kind == 'group_chat' && gid.isNotEmpty) ? 'g:$gid' : 'u:$uid';
+        final p = await SharedPreferences.getInstance();
+        await p.reload();
+        final muted = p.getStringList('muted_chats') ?? const <String>[];
+        if (muted.contains(key)) return;
+        final lockedList = p.getStringList('locked_chats') ?? const <String>[];
+        if (lockedList.contains(key)) {
+          data = {...data, 'text': 'New message'};
+        }
+      }
+    } catch (_) {}
+    await _showInfoRaw(data);
+  }
+
+  static Future<void> _showInfoRaw(Map<String, dynamic> data) async {
+    try {
       await _init();
       final kind = data['kind']?.toString() ?? '';
       final uid = data['from_uid']?.toString() ?? '';

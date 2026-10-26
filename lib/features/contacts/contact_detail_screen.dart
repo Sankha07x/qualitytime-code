@@ -10,6 +10,8 @@ import '../../core/webrtc/quality_choice.dart';
 import '../../utils/settings/contact_quality_prefs.dart';
 import '../voice/voice_chat_screen.dart';
 import '../chat/chat_screen.dart';
+import '../chat/locked_chat_view.dart';
+import '../../utils/settings/chat_prefs.dart';
 
 /// Personal page of one contact: photo, name, ID, call buttons and the
 /// call history with this person.
@@ -334,6 +336,30 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
                 ],
               ),
               const SizedBox(height: 12),
+              ValueListenableBuilder<Set<String>>(
+                valueListenable: ChatPrefs.muted,
+                builder: (context, m, _) => SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  secondary: Icon(m.contains('u:${c.uid}')
+                      ? Icons.notifications_off_outlined
+                      : Icons.notifications_none),
+                  title: const Text('Mute notifications'),
+                  subtitle: const Text('No alerts for messages from this friend'),
+                  value: m.contains('u:${c.uid}'),
+                  onChanged: (v) => ChatPrefs.setMuted('u:${c.uid}', v),
+                ),
+              ),
+              ValueListenableBuilder<Set<String>>(
+                valueListenable: ChatPrefs.locked,
+                builder: (context, l, _) => SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  secondary: const Icon(Icons.lock_outline),
+                  title: const Text('Lock chat'),
+                  subtitle: const Text('Needs your PIN to open this chat'),
+                  value: l.contains('u:${c.uid}'),
+                  onChanged: (v) => toggleChatLock(context, 'u:${c.uid}', v),
+                ),
+              ),
               const SizedBox(height: 20),
               Text(
                 'Call quality with ${c.displayName}',

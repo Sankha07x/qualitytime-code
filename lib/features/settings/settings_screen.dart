@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/update/update_service.dart';
 import 'customize_screen.dart';
+import '../../utils/settings/app_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -23,6 +24,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _open(Widget page) {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+  }
+
+Widget _vibrationTile() {
+    final cs = Theme.of(context).colorScheme;
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 12),
+      color: cs.surfaceContainerHighest.withOpacity(0.5),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: cs.outlineVariant.withOpacity(0.5)),
+      ),
+      child: ValueListenableBuilder<bool>(
+        valueListenable: AppSettings.vibration,
+        builder: (context, on, _) => SwitchListTile(
+          secondary: Icon(Icons.vibration, color: cs.primary),
+          title: const Text('Vibration'),
+          subtitle: const Text('Messages and voice notes'),
+          value: on,
+          onChanged: AppSettings.setVibration,
+        ),
+      ),
+    );
   }
 
   Widget _tile(IconData icon, String title, String sub, VoidCallback onTap) {
@@ -110,6 +135,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'Colour, wallpaper',
                     () => _open(const CustomizeScreen()),
                   ),
+                  _vibrationTile(),
                 ],
               ),
             ),

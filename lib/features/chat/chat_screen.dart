@@ -17,6 +17,8 @@ import 'typing_service.dart';
 import 'typing_widgets.dart';
 import 'message_menu.dart';
 import 'reply_widgets.dart';
+import 'locked_chat_view.dart';
+import '../../utils/settings/chat_prefs.dart';
 
 class _Item {
   final DateTime at;
@@ -57,6 +59,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _scroll = ScrollController();
   final _showDown = ValueNotifier<bool>(false);
   bool _searching = false;
+  bool _unlocked = false;
   ChatMessage? _replying;
   ChatMessage? _editing;
   final _prefill = ValueNotifier<String?>(null);
@@ -453,6 +456,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (ChatPrefs.locked.value.contains('u:${widget.contactUid}') &&
+        !_unlocked) {
+      return LockedChatView(
+          onUnlock: () => setState(() => _unlocked = true));
+    }
     return Scaffold(
       extendBodyBehindAppBar: true,
       floatingActionButton: _downFab(),

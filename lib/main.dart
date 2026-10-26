@@ -20,6 +20,7 @@ import 'utils/settings/app_settings.dart';
 import 'utils/glass.dart';
 import 'utils/splash_screen.dart';
 import 'utils/perf_guard.dart';
+import 'utils/settings/chat_prefs.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 
 final GlobalKey<NavigatorState> appNavKey = GlobalKey<NavigatorState>();
@@ -71,6 +72,7 @@ Future<void> main() async {
   } catch (_) {}
   try {
     await AppSettings.load();
+    await ChatPrefs.load();
   } catch (e) {
     debugPrint('Settings load: $e');
   }
@@ -440,8 +442,14 @@ class _StartupGateState extends State<_StartupGate> {
         backgroundColor: const Color(0xFF042F2E),
         body: Center(
           child: name == null
-              ? Image.asset('assets/icon/app_icon.png',
-                  width: 96, height: 96)
+              ? const SizedBox(
+                  width: 120,
+                  child: LinearProgressIndicator(
+                    minHeight: 2,
+                    color: Color(0xFF2DD4BF),
+                    backgroundColor: Color(0xFF0B4F4B),
+                  ),
+                )
               : Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [

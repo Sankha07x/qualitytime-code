@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../utils/user_avatar.dart';
+import '../../utils/settings/chat_prefs.dart';
 import '../contacts/contact_controller.dart';
 import '../contacts/contact_model.dart';
 import 'chat_screen.dart';
@@ -195,6 +196,9 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
             : '🎤 Voice message';
       }
       if (at == null) continue;
+      if (ChatPrefs.locked.value.contains('u:${c.uid}')) {
+        text = '🔒 Locked chat';
+      }
       out.add(_Conv(c, at, text,
           (unreadChat[c.uid] ?? 0) + (unheard[c.uid] ?? 0)));
     }

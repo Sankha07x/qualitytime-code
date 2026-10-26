@@ -36,6 +36,7 @@ dependencies:
   pdfx: ^2.11.0
   open_filex: ^4.7.0
   flutter_displaymode: ^0.7.0
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

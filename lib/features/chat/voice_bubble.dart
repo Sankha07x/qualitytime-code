@@ -12,6 +12,8 @@ class VoicePlayerController extends ChangeNotifier {
   final _subs = <StreamSubscription>[];
   Duration _dur = Duration.zero;
   String? playingId;
+  VoiceMessage? _once;
+  VoiceService? _onceSvc;
   String? loadingId;
   bool _disposed = false;
 
@@ -23,10 +25,19 @@ class VoicePlayerController extends ChangeNotifier {
       }
     }));
     _subs.add(_p.onPlayerComplete.listen((_) {
+      _finishOnce();
       pos.value = 0;
       playingId = null;
       _tell();
     }));
+  }
+
+  void _finishOnce() {
+    final m = _once;
+    final s = _onceSvc;
+    _once = null;
+    _onceSvc = null;
+    if (m != null && s != null) s.consume(m);
   }
 
   void _tell() {
@@ -34,6 +45,7 @@ class VoicePlayerController extends ChangeNotifier {
   }
 
   Future<void> stop() async {
+    _finishOnce();
     await _p.stop();
     pos.value = 0;
     playingId = null;
@@ -46,6 +58,7 @@ class VoicePlayerController extends ChangeNotifier {
       await stop();
       return null;
     }
+    _finishOnce();
     loadingId = m.id;
     _tell();
     final f = await svc.fileFor(m);
@@ -58,6 +71,10 @@ class VoicePlayerController extends ChangeNotifier {
       await _p.stop();
       pos.value = 0;
       await _p.play(DeviceFileSource(f.path));
+      if (m.viewOnce && m.toUid == svc.myUid) {
+        _once = m;
+        _onceSvc = svc;
+      }
       playingId = m.id;
       _tell();
       return null;
@@ -69,6 +86,7 @@ class VoicePlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _finishOnce();
     _disposed = true;
     for (final s in _subs) {
       s.cancel();
@@ -121,6 +139,10 @@ class VoiceBubble extends StatelessWidget {
                 children: [
                   GestureDetector(
                     onTap: () async {
+                      if (m.viewOnce &&
+                          (mine || (m.playedAt != null && !playing))) {
+                        return;
+                      }
                       final e = await player.toggle(m, svc);
                       if (e != null) onError(e);
                     },
@@ -140,7 +162,13 @@ class VoiceBubble extends StatelessWidget {
                                   strokeWidth: 2.5, color: fg),
                             )
                           : Icon(
-                              playing ? Icons.pause : Icons.play_arrow,
+                              playing
+                                  ? Icons.pause
+                                  : !m.viewOnce
+                                      ? Icons.play_arrow
+                                      : (m.playedAt != null
+                                          ? Icons.check_circle_outline
+                                          : Icons.looks_one_outlined),
                               color: mine ? Colors.white : accent,
                               size: 28,
                             ),
@@ -166,7 +194,12 @@ class VoiceBubble extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        Text(_fmt(m.seconds),
+                        Text(
+                            m.viewOnce
+                                ? (m.playedAt != null
+                                    ? 'Opened'
+                                    : 'View once  ${_fmt(m.seconds)}')
+                                : _fmt(m.seconds),
                             style: TextStyle(color: fg, fontSize: 12.5)),
                       ],
                     ),

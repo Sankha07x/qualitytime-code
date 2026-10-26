@@ -38,6 +38,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
   bool _recording = false;
   bool _sending = false;
   bool _hasText = false;
+  bool _once = false;
   int _secs = 0;
   Timer? _timer;
   StreamSubscription? _amp;
@@ -122,6 +123,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
       return;
     }
     HapticFeedback.mediumImpact();
+    _once = false;
     _secs = 0;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
@@ -158,7 +160,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
     if (mounted) setState(() => _sending = true);
     String? err;
     try {
-      err = await widget.voice.send(r.file, r.seconds);
+      err = await widget.voice.send(r.file, r.seconds, viewOnce: _once);
     } catch (_) {
       err = 'Voice message not sent. Try again.';
     }
@@ -267,6 +269,16 @@ class _ChatInputBarState extends State<ChatInputBar> {
                                       fontWeight: FontWeight.w600),
                                 ),
                               ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'View once',
+                            onPressed: () => setState(() => _once = !_once),
+                            icon: Icon(
+                              _once ? Icons.looks_one : Icons.looks_one_outlined,
+                              color: _once
+                                  ? Color(AppSettings.accent.value)
+                                  : null,
                             ),
                           ),
                           _circle(Icons.send_rounded, () => _finish(true)),
