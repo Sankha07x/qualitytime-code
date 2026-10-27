@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../utils/user_avatar.dart';
 import '../../utils/settings/chat_prefs.dart';
+import '../../core/security/e2ee_service.dart';
 import '../contacts/contact_controller.dart';
 import '../contacts/contact_model.dart';
 import 'chat_screen.dart';
@@ -130,8 +131,10 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
         final u = r['from_uid'] as String;
         unreadChat[u] = (unreadChat[u] ?? 0) + 1;
         cloudAt[u] = DateTime.parse(r['created_at'] as String).toLocal();
-        cloudText[u] =
-            r['kind'] == 'file' ? '📎 File' : (r['body'] ?? '').toString();
+        cloudText[u] = r['kind'] == 'file'
+            ? '📎 File'
+            : await E2eeService.decryptPeerText(
+                u, (r['body'] ?? '').toString());
       }
     } catch (_) {}
 

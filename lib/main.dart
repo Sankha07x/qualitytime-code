@@ -21,6 +21,7 @@ import 'utils/glass.dart';
 import 'utils/splash_screen.dart';
 import 'utils/perf_guard.dart';
 import 'utils/settings/chat_prefs.dart';
+import 'core/security/e2ee_service.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 
 final GlobalKey<NavigatorState> appNavKey = GlobalKey<NavigatorState>();
@@ -212,6 +213,7 @@ class _StartupGateState extends State<_StartupGate> {
         if (cached == null) rethrow;
         uid = cached;
       }
+      if (uid != null) unawaited(E2eeService.init(uid));
       if (!kIsWeb) PushNotificationService().init();
       if (!mounted) return;
       setState(() => _myUid = uid);

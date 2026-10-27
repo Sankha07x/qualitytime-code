@@ -3,19 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QualityTime Terms of Service - User Agreement & Guidelines</title>
+  <title>QualityTime Privacy Policy - Zero-Log P2P Encryption & Data Protection</title>
   
   <!-- SEO Meta Tags -->
-  <meta name="description" content="Terms of Service for QualityTime peer-to-peer audio and video calling software. Read our user terms, acceptable use policy, and disclaimers.">
+  <meta name="description" content="Privacy Policy for QualityTime peer-to-peer calling app. Learn how we protect your privacy with direct device-to-device WebRTC encryption and zero media data retention.">
+  <meta name="keywords" content="QualityTime privacy policy, encrypted calling privacy, P2P call security, no log voice calling, WebRTC security">
   <meta name="robots" content="index, follow">
-  <link rel="canonical" href="./terms.html">
+  <link rel="canonical" href="https://qualitytime.pages.dev/privacy.html">
 
   <!-- Open Graph -->
   <meta property="og:type" content="website">
-  <meta property="og:title" content="QualityTime Terms of Service">
-  <meta property="og:description" content="Terms and conditions governing the use of QualityTime software.">
-  <meta property="og:image" content="assets/img/app-icon.png">
-  <meta property="og:url" content="https://sankha07x.github.io/qualitytime/terms.html">
+  <meta property="og:title" content="QualityTime Privacy Policy">
+  <meta property="og:description" content="Our commitment to zero media retention and peer-to-peer privacy.">
+  <meta property="og:image" content="https://qualitytime.pages.dev/assets/img/app-icon.png">
+  <meta property="og:url" content="https://qualitytime.pages.dev/privacy.html">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png">
@@ -45,7 +46,7 @@
           <li><a href="download.html" class="nav-link">Download</a></li>
           <li><a href="changelog.html" class="nav-link">Changelog</a></li>
           <li><a href="faq.html" class="nav-link">FAQ & Guide</a></li>
-          <li><a href="privacy.html" class="nav-link">Privacy</a></li>
+          <li><a href="privacy.html" class="nav-link active">Privacy</a></li>
           <li class="nav-mobile-cta">
             <a href="download.html" class="btn btn-primary dyn-apk-link" aria-label="Direct Download APK">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -69,53 +70,65 @@
   <div class="container container-narrow" style="padding-top: 50px;">
     <div class="pill">
       <span class="pulse-dot"></span>
-      <span>USER AGREEMENT</span>
+      <span>TRANSPARENCY FIRST</span>
     </div>
-    <h1 style="margin: 18px 0 10px;">Terms of Service</h1>
+    <h1 style="margin: 18px 0 10px;">Privacy Policy</h1>
     <p class="subtle">Last Updated: October 2026 &bull; Effective Immediately</p>
 
     <div class="legal-content">
       <p>
-        Welcome to <strong>QualityTime</strong>. By downloading, installing, or utilizing the QualityTime mobile application, you agree to comply with and be bound by the following Terms of Service. If you do not agree to these terms, please do not download or use the software.
+        At <strong>QualityTime</strong>, we believe that private personal communications belong exclusively to the people having them. Unlike conventional communication apps that process, inspect, or archive your conversations on corporate servers, QualityTime is engineered upon a <strong>peer-to-peer (P2P) architecture</strong> where your audio and video streams never pass through an intermediary media storage vault.
       </p>
 
-      <h2>1. Permitted Use</h2>
+      <h2>1. The Peer-to-Peer Architectural Model</h2>
       <p>
-        QualityTime is provided as a free peer-to-peer audio and video communication application for personal and lawful communication purposes. You agree to use the software only for lawful activities and in compliance with all applicable local, national, and international laws and regulations.
+        QualityTime leverages the WebRTC (Web Real-Time Communication) standard. When you initiate a call:
       </p>
-
-      <h2>2. Prohibited Conduct</h2>
-      <p>You agree not to:</p>
       <ul>
-        <li>Use the application to harass, abuse, stalk, threaten, or violate the legal rights of other individuals.</li>
-        <li>Transmit any unsolicited commercial messages, spam, or unlawful material.</li>
-        <li>Attempt to reverse engineer, decompile, or extract the source code of proprietary components, except where permissible under open-source licenses.</li>
-        <li>Interfere with or disrupt signaling networks or servers used to coordinate peer connections.</li>
+        <li>A lightweight signaling handshake occurs to exchange connection coordinates (IP/port ICE candidates).</li>
+        <li>Once established, media streams (microphone voice and camera video) are encrypted end-to-end via <strong>DTLS-SRTP (Datagram Transport Layer Security - Secure Real-time Transport Protocol)</strong>.</li>
+        <li>Your media flows directly from your device to the peer device without stopping at or being recorded by any QualityTime database or media server.</li>
       </ul>
 
-      <h2>3. Peer-to-Peer Nature & No Emergency Calling</h2>
+      <h2>2. What Information We Do NOT Collect</h2>
+      <ul>
+        <li><strong>Call Content:</strong> We do not record, transcribe, listen to, or save any voice, video, screen share, or animated reaction data.</li>
+        <li><strong>Media Attachments:</strong> Photos, PDF documents, and audio voice notes exchanged during active peer sessions are delivered directly and stored locally on your device.</li>
+        <li><strong>Local Customizations:</strong> Custom wallpapers, custom ringtones, volume settings, and backdrop blur adjustments remain 100% on your device's local file storage and are never uploaded.</li>
+      </ul>
+
+      <h2>3. Information Used Solely to Facilitate Service</h2>
+      <ul>
+        <li><strong>Signaling & Authentication:</strong> To route incoming calls and friend invitations, a random unique identifier (UID) or authenticated phone token is used by our signaling layer to notify the recipient that you are ringing them.</li>
+        <li><strong>Push Notifications (FCM):</strong> We use Firebase Cloud Messaging to send an encrypted wake-up signal to your phone when an incoming call arrives while the app is in the background or locked. No call content is included in notifications.</li>
+        <li><strong>Update Checks:</strong> The app periodically queries our public GitHub manifest (<code>update.json</code>) to notify you of newer releases. No personal identifiers or telemetry are sent during this version check.</li>
+      </ul>
+
+      <h2>4. Device Permissions & Why They Are Required</h2>
+      <p>To function as a high-performance communication tool, QualityTime requests the following Android permissions:</p>
+      <ul>
+        <li><strong>Camera (<code>android.permission.CAMERA</code>):</strong> Required to capture local video for 1080p and video calling. Activated strictly during active video calls or photo selection.</li>
+        <li><strong>Microphone (<code>android.permission.RECORD_AUDIO</code>):</strong> Required to transmit audio through the Opus codec during calls and voice messages.</li>
+        <li><strong>Notifications & Full-Screen Intent:</strong> Required to ring your device on lockscreen when someone calls you.</li>
+        <li><strong>Storage / Media:</strong> Required only when you explicitly select a custom wallpaper or custom ringtone audio file from your device storage.</li>
+      </ul>
+
+      <h2>5. Security & Encryption Standards</h2>
       <p>
-        <strong>IMPORTANT NOTICE:</strong> QualityTime is not a telecommunications carrier service and does not support or carry emergency calls to emergency services (e.g., 911, 112, 999). You must ensure you have access to alternative traditional telephone service or mobile network operators for emergency calls.
+        All real-time streams utilize DTLS-SRTP encryption with modern cipher suites. Session encryption keys are generated randomly in volatile RAM for each call and are irreversibly purged when the call disconnects.
       </p>
 
-      <h2>4. Updates & Modifications</h2>
+      <h2>6. Third-Party Services</h2>
       <p>
-        QualityTime releases updates to improve stability, add features, and rectify software bugs. Updates are distributed via public manifests hosted on GitHub. While updates are designed to maintain backward compatibility, certain major updates may require upgrading to maintain peer connectivity.
+        QualityTime uses open-source WebRTC libraries, Supabase for minimal authentication and signaling coordination, and Google Firebase for waking up Android devices upon incoming rings. We do not integrate third-party ad networks, tracking SDKs, or data brokers.
       </p>
 
-      <h2>5. Disclaimer of Warranties</h2>
+      <h2>7. Contact & Security Reports</h2>
       <p>
-        QualityTime is provided on an "AS IS" and "AS AVAILABLE" basis without warranties of any kind, whether express or implied, including but not limited to the implied warranties of merchantability, fitness for a particular purpose, or uninterrupted, bug-free operation. Quality of transmission is dependent upon your internet connection, carrier constraints, and device capabilities.
+        For security vulnerability disclosures, privacy inquiries, or developer questions, please open an inquiry on our official GitHub repository:
       </p>
-
-      <h2>6. Limitation of Liability</h2>
       <p>
-        To the fullest extent permissible under applicable law, the authors, contributors, and maintainers of QualityTime shall not be liable for any indirect, incidental, special, consequential, or punitive damages resulting from the use or inability to use the software.
-      </p>
-
-      <h2>7. Changes to Terms</h2>
-      <p>
-        We reserve the right to revise these Terms of Service at any time. Continued use of QualityTime after such revisions constitutes acceptance of the modified terms.
+        GitHub Repository: <a href="https://github.com/Sankha07x/qualitytime-releases" target="_blank" rel="noopener" style="color: #2dd4bf; text-decoration: underline;">https://github.com/Sankha07x/qualitytime-releases</a>
       </p>
     </div>
   </div>

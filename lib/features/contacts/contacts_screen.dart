@@ -30,6 +30,7 @@ import 'dart:io' show File;
 import '../../utils/settings/app_settings.dart';
 import '../../utils/haptics.dart';
 import '../../utils/settings/chat_prefs.dart';
+import '../../core/security/e2ee_service.dart';
 import 'dart:ui' show ImageFilter;
 import '../../utils/glass.dart';
 import '../settings/settings_screen.dart';
@@ -159,7 +160,10 @@ class _ContactsScreenState extends State<ContactsScreen>
       for (final r in rows as List) {
         final u = r['from_uid'] as String;
         m[u] = (m[u] ?? 0) + 1;
-        pv[u] = r['kind'] == 'file' ? '📎 File' : (r['body'] ?? '').toString();
+        pv[u] = r['kind'] == 'file'
+            ? '📎 File'
+            : await E2eeService.decryptPeerText(
+                u, (r['body'] ?? '').toString());
       }
       if (mounted) {
         final before = _unread.value.values.fold<int>(0, (a, b) => a + b);

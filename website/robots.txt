@@ -3,4 +3,4 @@ User-agent: *
 Allow: /
 
 # Sitemaps
-Sitemap: sitemap.xml
+Sitemap: https://qualitytime.pages.dev/sitemap.xml

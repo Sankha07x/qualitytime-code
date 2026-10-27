@@ -5,6 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../utils/haptics.dart';
+import '../../utils/media_compress.dart';
+import '../../core/security/e2ee_service.dart';
+
+
 
 class ChatMessage {
   final String id;
@@ -189,11 +193,17 @@ class ChatService {
         final id = row['id'] as String;
         final isFile = row['kind'] == 'file';
         final cloudPath = row['file_path'] as String?;
+        final rawFileName = row['file_name'] as String?;
+        final decFileName = rawFileName == null
+            ? null
+            : await E2eeService.decryptPeerText(peerUid, rawFileName);
         String? localName;
         if (isFile && cloudPath != null) {
           try {
-            final bytes = await _c.storage.from(bucket).download(cloudPath);
-            localName = 'chatfile_${id}_${_safe(row['file_name'] as String? ?? 'file')}';
+            final encBytes = await _c.storage.from(bucket).download(cloudPath);
+            final bytes =
+                await E2eeService.decryptPeerBytes(peerUid, encBytes);
+            localName = 'chatfile_${id}_${_safe(decFileName ?? 'file')}';
             await File('${(await _dir()).path}/$localName')
                 .writeAsBytes(bytes, flush: true);
           } catch (e) {
@@ -201,17 +211,25 @@ class ChatService {
             continue; // try again next time
           }
         }
+        final rawBody = row['body'] as String?;
+        final decBody = rawBody == null
+            ? null
+            : await E2eeService.decryptPeerText(peerUid, rawBody);
+        final rawReply = row['reply_text'] as String?;
+        final decReply = rawReply == null
+            ? null
+            : await E2eeService.decryptPeerText(peerUid, rawReply);
         await _add(ChatMessage(
           id: id,
           fromUid: peerUid,
           toUid: myUid,
           kind: row['kind'] as String,
-          body: row['body'] as String?,
-          fileName: row['file_name'] as String?,
+          body: decBody,
+          fileName: decFileName,
           localName: localName,
           fileSize: (row['file_size'] as num?)?.toInt(),
           replyTo: row['reply_to']?.toString(),
-          replyText: row['reply_text'] as String?,
+          replyText: decReply,
           replyFrom: row['reply_from'] as String?,
           createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
         ));
@@ -245,15 +263,19 @@ class ChatService {
     if (t.isEmpty) return 'Nothing to send.';
     if (t.length > 4000) return 'Message is too long.';
     try {
+      final encBody = await E2eeService.encryptPeerText(peerUid, t);
+      final encReply = replyTo == null
+          ? null
+          : await E2eeService.encryptPeerText(peerUid, _snip(replyTo));
       final row = await _c
           .from('chat_messages')
           .insert({
             'from_uid': myUid,
             'to_uid': peerUid,
             'kind': 'text',
-            'body': t,
+            'body': encBody,
             if (replyTo != null) 'reply_to': replyTo.id,
-            if (replyTo != null) 'reply_text': _snip(replyTo),
+            if (encReply != null) 'reply_text': encReply,
             if (replyTo != null) 'reply_from': replyTo.fromUid,
           })
           .select('id, created_at')
@@ -277,19 +299,40 @@ class ChatService {
   }
 
   Future<String?> sendFile(File f, String name) async {
-    if (await f.length() > maxFileBytes) {
+    final sendF = await MediaCompress.compressImageForChat(f, name);
+    final compressed = sendF.path != f.path;
+    final sendName = compressed ? MediaCompress.jpgName(name) : name;
+    Future<void> cleanTemp() async {
+      if (compressed) {
+        try {
+          await sendF.delete();
+        } catch (_) {}
+      }
+    }
+
+    final size = await sendF.length();
+    if (size > maxFileBytes) {
+      await cleanTemp();
       return 'File is too big. Maximum is 3.5 MB.';
     }
-    final safe = _safe(name);
-    final path = '$myUid/${DateTime.now().millisecondsSinceEpoch}_$safe';
+    final safe = _safe(sendName);
+    final path = '$myUid/${DateTime.now().millisecondsSinceEpoch}.bin';
     try {
-      await _c.storage.from(bucket).upload(path, f);
+      final rawBytes = await sendF.readAsBytes();
+      final encBytes = await E2eeService.encryptPeerBytes(peerUid, rawBytes);
+      await _c.storage.from(bucket).uploadBinary(
+            path,
+            encBytes,
+            fileOptions:
+                const FileOptions(contentType: 'application/octet-stream'),
+          );
     } catch (e) {
       debugPrint('CHAT upload failed: $e');
+      await cleanTemp();
       return 'Could not upload. Check your internet.';
     }
     try {
-      final size = await f.length();
+      final encName = await E2eeService.encryptPeerText(peerUid, sendName);
       final row = await _c
           .from('chat_messages')
           .insert({
@@ -297,20 +340,21 @@ class ChatService {
             'to_uid': peerUid,
             'kind': 'file',
             'file_path': path,
-            'file_name': name,
+            'file_name': encName,
             'file_size': size,
           })
           .select('id, created_at')
           .single();
       final id = row['id'] as String;
       final localName = 'chatfile_${id}_$safe';
-      await f.copy('${(await _dir()).path}/$localName');
+      await sendF.copy('${(await _dir()).path}/$localName');
+      await cleanTemp();
       await _add(ChatMessage(
         id: id,
         fromUid: myUid,
         toUid: peerUid,
         kind: 'file',
-        fileName: name,
+        fileName: sendName,
         localName: localName,
         fileSize: size,
         createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
@@ -318,12 +362,14 @@ class ChatService {
       return null;
     } catch (e) {
       debugPrint('CHAT file send failed: $e');
+      await cleanTemp();
       try {
         await _c.storage.from(bucket).remove([path]);
       } catch (_) {}
       return 'Could not send. You can only send to friends.';
     }
   }
+
 
   static const editWindow = Duration(minutes: 15);
 
@@ -346,11 +392,12 @@ class ChatService {
     if (!canEdit(m)) return 'You can only edit within 15 minutes.';
     if (t == (m.body ?? '')) return null;
     try {
+      final enc = await E2eeService.encryptPeerText(peerUid, t);
       await _c.from('chat_messages').insert({
         'from_uid': myUid,
         'to_uid': peerUid,
         'kind': 'edit',
-        'body': t,
+        'body': enc,
         'reply_to': m.id,
       });
     } catch (e) {
@@ -375,7 +422,8 @@ class ChatService {
     if (at.difference(m.createdAt) > editWindow + const Duration(minutes: 1)) {
       return;
     }
-    m.body = (row['body'] ?? '').toString();
+    m.body = await E2eeService.decryptPeerText(
+        peerUid, (row['body'] ?? '').toString());
     m.editedAt = at;
     messages.value = [...messages.value];
     await _save();

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/security/e2ee_service.dart';
 
 class GroupMessage {
   final String id;
@@ -139,10 +140,29 @@ class GroupChatService {
     });
   }
 
-  void _onInsert(Map<String, dynamic> r) {
+  Future<GroupMessage> _parseRow(Map<String, dynamic> r) async {
+    final m = GroupMessage.fromRow(r);
+    final b = await E2eeService.decryptGroupText(groupId, myUid, m.body);
+    final rt = m.replyText == null
+        ? null
+        : await E2eeService.decryptGroupText(groupId, myUid, m.replyText!);
+    return GroupMessage(
+      id: m.id,
+      fromUid: m.fromUid,
+      body: b,
+      createdAt: m.createdAt,
+      state: m.state,
+      replyTo: m.replyTo,
+      replyText: rt,
+      replyFrom: m.replyFrom,
+      editedAt: m.editedAt,
+    );
+  }
+
+  Future<void> _onInsert(Map<String, dynamic> r) async {
     if (_disposed) return;
     try {
-      _put(GroupMessage.fromRow(r));
+      _put(await _parseRow(r));
     } catch (e) {
       debugPrint('GCHAT insert parse failed: $e');
     }
@@ -153,10 +173,11 @@ class GroupChatService {
     messages.value = _sorted([...messages.value, m]);
   }
 
-  void _onUpdate(Map<String, dynamic> r) {
+  Future<void> _onUpdate(Map<String, dynamic> r) async {
     if (_disposed) return;
     try {
-      final u = GroupMessage.fromRow(r);
+      final u = await _parseRow(r);
+      if (_disposed) return;
       messages.value = [
         for (final m in messages.value) m.id == u.id ? u : m,
       ];
@@ -194,10 +215,11 @@ class GroupChatService {
           .eq('group_id', groupId)
           .order('created_at', ascending: false)
           .limit(300);
-      final server = [
-        for (final r in rows as List)
-          GroupMessage.fromRow(Map<String, dynamic>.from(r)),
-      ];
+      final server = <GroupMessage>[];
+      for (final r in rows as List) {
+        server.add(await _parseRow(Map<String, dynamic>.from(r)));
+      }
+
       final keep = messages.value.where((m) => m.local).toList();
       if (_disposed) return;
       messages.value = _sorted([...server, ...keep]);
@@ -240,14 +262,18 @@ class GroupChatService {
       _setState(localId, 1);
     }
     try {
+      final encBody = await E2eeService.encryptGroupText(groupId, myUid, t);
+      final encReply = rText == null
+          ? null
+          : await E2eeService.encryptGroupText(groupId, myUid, rText);
       final row = await _c
           .from('group_messages')
           .insert({
             'group_id': groupId,
             'from_uid': myUid,
-            'body': t,
+            'body': encBody,
             if (rId != null) 'reply_to': rId,
-            if (rText != null) 'reply_text': rText,
+            if (encReply != null) 'reply_text': encReply,
             if (rFrom != null) 'reply_from': rFrom,
           })
           .select('id, created_at')
@@ -300,9 +326,10 @@ class GroupChatService {
     if (!canEdit(m)) return 'You can only edit within 15 minutes.';
     if (t == m.body) return null;
     try {
+      final enc = await E2eeService.encryptGroupText(groupId, myUid, t);
       await _c
           .from('group_messages')
-          .update({'body': t})
+          .update({'body': enc})
           .eq('id', m.id)
           .eq('from_uid', myUid)
           .select('id')

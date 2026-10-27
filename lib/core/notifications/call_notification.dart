@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/app_config.dart';
 import '../signaling/incoming_call_service.dart';
+import '../security/e2ee_service.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:audioplayers/audioplayers.dart' as ap;
@@ -152,12 +153,16 @@ class CallNotification {
         .order('created_at');
     final list = <Map<String, dynamic>>[];
     for (final r in rows as List) {
+      final rawB = r['body']?.toString();
+      final rawRx = r['reply_text']?.toString();
       list.add({
         'id': r['id'],
         'from': peer,
         'to': me,
         'kind': 'text',
-        'body': r['body'],
+        'body': rawB == null
+            ? null
+            : await E2eeService.decryptPeerText(peer, rawB),
         'fileName': null,
         'localName': null,
         'fileSize': null,
@@ -166,7 +171,9 @@ class CallNotification {
             .toIso8601String(),
         'status': 2,
         'rt': r['reply_to'],
-        'rx': r['reply_text'],
+        'rx': rawRx == null
+            ? null
+            : await E2eeService.decryptPeerText(peer, rawRx),
         'rf': r['reply_from'],
       });
     }
@@ -230,13 +237,14 @@ class CallNotification {
         if (peer.isEmpty) return;
         await _saveIncomingText(db, me, peer);
         if (isReply) {
+          final enc = await E2eeService.encryptPeerText(peer, text);
           final row = await db
               .from('chat_messages')
               .insert({
                 'from_uid': me,
                 'to_uid': peer,
                 'kind': 'text',
-                'body': text,
+                'body': enc,
               })
               .select('id, created_at')
               .single();
@@ -261,10 +269,11 @@ class CallNotification {
         final gid = m['g']?.toString() ?? '';
         if (gid.isEmpty) return;
         if (isReply) {
+          final enc = await E2eeService.encryptGroupText(gid, me, text);
           await db.from('group_messages').insert({
             'group_id': gid,
             'from_uid': me,
-            'body': text,
+            'body': enc,
           });
         }
         await p.setInt('gread_$gid', DateTime.now().millisecondsSinceEpoch);
@@ -531,6 +540,19 @@ class CallNotification {
         final lockedList = p.getStringList('locked_chats') ?? const <String>[];
         if (lockedList.contains(key)) {
           data = {...data, 'text': 'New message'};
+        } else if (E2eeService.isEncryptedText(data['text']?.toString())) {
+          try {
+            await Supabase.initialize(
+              url: AppConfig.supabaseUrl,
+              anonKey: AppConfig.supabaseAnonKey,
+            );
+          } catch (_) {}
+          final raw = data['text'].toString();
+          final dec = (kind == 'group_chat' && gid.isNotEmpty)
+              ? await E2eeService.decryptGroupText(
+                  gid, p.getString('my_uid_${Supabase.instance.client.auth.currentUser?.id ?? ''}') ?? '', raw)
+              : await E2eeService.decryptPeerText(uid, raw);
+          data = {...data, 'text': dec};
         }
       }
     } catch (_) {}

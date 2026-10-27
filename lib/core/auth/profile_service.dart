@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../utils/media_compress.dart';
 
 class MyProfile {
   final String uid;
@@ -86,11 +87,12 @@ class ProfileService {
 
   Future<String> uploadPhoto(Uint8List bytes) async {
     final id = _id!;
+    final sendBytes = await MediaCompress.compressAvatarBytes(bytes);
     final path = '$id/avatar_${DateTime.now().millisecondsSinceEpoch}.png';
     final bucket = _c.storage.from('avatars');
     await bucket.uploadBinary(
       path,
-      bytes,
+      sendBytes,
       fileOptions: const FileOptions(contentType: 'image/png', upsert: true),
     );
     final url = bucket.getPublicUrl(path);

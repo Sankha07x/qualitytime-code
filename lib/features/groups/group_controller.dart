@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/security/e2ee_service.dart';
+
 
 class GroupModel {
   final String id;
@@ -115,11 +117,13 @@ class GroupController {
           })
           .select('id')
           .single();
+      final gid = r['id'].toString();
       if (uids.isNotEmpty) {
         await _c.from('group_members').insert([
-          for (final u in uids) {'group_id': r['id'], 'member_uid': u},
+          for (final u in uids) {'group_id': gid, 'member_uid': u},
         ]);
       }
+      await E2eeService.ensureGroupKey(gid, myUid, uids);
       await refresh();
       return null;
     } catch (e) {
@@ -146,6 +150,7 @@ class GroupController {
       await _c.from('group_members').insert([
         for (final u in uids) {'group_id': id, 'member_uid': u},
       ]);
+      await E2eeService.ensureGroupKey(id, myUid, uids);
       await refresh();
       return id;
     } catch (e) {
@@ -160,6 +165,7 @@ class GroupController {
       await _c.from('group_members').insert([
         for (final u in uids) {'group_id': gid, 'member_uid': u},
       ]);
+      await E2eeService.ensureGroupKey(gid, myUid, uids);
       await refresh();
       return null;
     } catch (e) {

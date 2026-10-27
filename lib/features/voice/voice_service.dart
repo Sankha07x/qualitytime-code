@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/security/e2ee_service.dart';
 
 class VoiceMessage {
   final String id;
@@ -165,10 +166,13 @@ class VoiceService {
   Future<String?> send(File f, int seconds, {bool viewOnce = false}) async {
     final path = '$myUid/${DateTime.now().millisecondsSinceEpoch}.m4a';
     try {
-      await _c.storage.from('voice').upload(
+      final rawBytes = await f.readAsBytes();
+      final encBytes = await E2eeService.encryptPeerBytes(peerUid, rawBytes);
+      await _c.storage.from('voice').uploadBinary(
             path,
-            f,
-            fileOptions: const FileOptions(contentType: 'audio/mp4'),
+            encBytes,
+            fileOptions:
+                const FileOptions(contentType: 'application/octet-stream'),
           );
     } catch (e) {
       debugPrint('VOICE upload failed: $e');
@@ -222,7 +226,8 @@ class VoiceService {
     final p = m.path;
     if (p == null || m.toUid != myUid) return null;
     try {
-      final bytes = await _c.storage.from('voice').download(p);
+      final encBytes = await _c.storage.from('voice').download(p);
+      final bytes = await E2eeService.decryptPeerBytes(peerUid, encBytes);
       await local.writeAsBytes(bytes, flush: true);
     } catch (e) {
       debugPrint('VOICE download failed: $e');
