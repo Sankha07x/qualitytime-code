@@ -16,6 +16,30 @@ class ActiveCallInfo {
   });
 }
 
+class ActiveGroupCallInfo {
+  final String groupId;
+  final String groupName;
+  final String emoji;
+  final int color;
+  final String mode;
+  final bool video;
+  final int Function() getSeconds;
+  final VoidCallback onReturn;
+  final Future<void> Function() onEnd;
+
+  const ActiveGroupCallInfo({
+    required this.groupId,
+    required this.groupName,
+    required this.emoji,
+    required this.color,
+    required this.mode,
+    required this.video,
+    required this.getSeconds,
+    required this.onReturn,
+    required this.onEnd,
+  });
+}
+
 /// Keeps track of the running call and of a minimized one.
 class ActiveCall {
   /// The connected call (set by the controller).
@@ -23,6 +47,9 @@ class ActiveCall {
 
   /// Not null while the call screen is minimized (shows the green bar).
   static final current = ValueNotifier<ActiveCallInfo?>(null);
+
+  /// Not null while a group call is minimized.
+  static final currentGroup = ValueNotifier<ActiveGroupCallInfo?>(null);
 
   static Completer<bool>? _completer;
 

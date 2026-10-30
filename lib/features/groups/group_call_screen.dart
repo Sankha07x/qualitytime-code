@@ -10,6 +10,8 @@ import '../../utils/settings/app_settings.dart';
 import '../../utils/user_avatar.dart';
 import '../../utils/glass.dart';
 import '../call/animated_call_button.dart';
+import '../call/active_call.dart';
+import '../../main.dart' show appNavKey;
 import '../../core/signaling/group_ring_service.dart';
 import '../contacts/contact_controller.dart';
 import 'group_controller.dart';
@@ -25,6 +27,14 @@ class _Float {
   _Float(this.id, this.emoji, this.x);
 }
 
+enum GroupRingStatus {
+  calling,
+  ringing,
+  noAnswer,
+  declined,
+  busy,
+}
+
 class GroupCallScreen extends StatefulWidget {
   final String groupId;
   final String groupName;
@@ -35,6 +45,10 @@ class GroupCallScreen extends StatefulWidget {
   final GroupController groupController;
   final ContactController contactController;
   final String myUid;
+  final List<String>? initialRungMembers;
+  final Room? existingRoom;
+  final int? existingSeconds;
+  final EventsListener<RoomEvent>? existingEvents;
 
   const GroupCallScreen({
     super.key,
@@ -47,6 +61,10 @@ class GroupCallScreen extends StatefulWidget {
     this.emoji = '👥',
     this.color = 0xFF0D9488,
     this.mode = 'friends',
+    this.initialRungMembers,
+    this.existingRoom,
+    this.existingSeconds,
+    this.existingEvents,
   });
 
   @override
@@ -54,25 +72,9 @@ class GroupCallScreen extends StatefulWidget {
 }
 
 class _GroupCallScreenState extends State<GroupCallScreen> {
-  final Room _room = Room(
-    roomOptions: RoomOptions(
-      adaptiveStream: true,
-      defaultScreenShareCaptureOptions: ScreenShareCaptureOptions(
-        params: const VideoParameters(
-  dimensions: VideoDimensions(1920, 1080),
-  encoding: VideoEncoding(maxBitrate: 3000000, maxFramerate: 60),
-),
-      ),
-      dynacast: true,
-      defaultCameraCaptureOptions:
-          CameraCaptureOptions(params: VideoParametersPresets.h360_169),
-      defaultVideoPublishOptions: VideoPublishOptions(
-        simulcast: true,
-        videoEncoding: VideoEncoding(maxBitrate: 500000, maxFramerate: 24),
-      ),
-    ),
-  );
-  late final EventsListener<RoomEvent> _events = _room.createListener();
+  late final Room _room;
+  late final EventsListener<RoomEvent> _events;
+  bool _minimized = false;
 
   String? _error;
   bool _joined = false;
@@ -96,9 +98,136 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
       .where((x) => x.id == widget.groupId)
       .firstOrNull;
 
+  final Map<String, GroupRingStatus> _rungStatus = {};
+  final Map<String, Timer> _ringTimers = {};
+  RealtimeChannel? _signalSub;
+
+  void _trackRungMember(String uid) {
+    if (uid == widget.myUid) return;
+    if (_room.remoteParticipants.values.any((p) => p.identity == uid)) return;
+    _ringTimers[uid]?.cancel();
+    _rungStatus[uid] = GroupRingStatus.calling;
+    // 27-second ring timeout
+    _ringTimers[uid] = Timer(const Duration(seconds: 27), () {
+      if (mounted &&
+          (_rungStatus[uid] == GroupRingStatus.calling ||
+              _rungStatus[uid] == GroupRingStatus.ringing)) {
+        setState(() => _rungStatus[uid] = GroupRingStatus.noAnswer);
+      }
+    });
+  }
+
+  void _listenRingEvents() {
+    try {
+      _signalSub = Supabase.instance.client
+          .channel('user:${widget.myUid}')
+          .onBroadcast(
+            event: 'decline',
+            callback: (p) {
+              final inner = p['payload'] ?? p;
+              final d = (inner is Map && inner['d'] is Map)
+                  ? Map<String, dynamic>.from(inner['d'] as Map)
+                  : null;
+              final from = (d?['from'] ?? '').toString();
+              final sess = (d?['session'] ?? '').toString();
+              for (final uid in _rungStatus.keys) {
+                if (uid == from || (sess.isNotEmpty && sess.contains(uid))) {
+                  _ringTimers[uid]?.cancel();
+                  if (mounted) {
+                    setState(() => _rungStatus[uid] = GroupRingStatus.declined);
+                  }
+                }
+              }
+            },
+          )
+          .onBroadcast(
+            event: 'ringing',
+            callback: (p) {
+              final inner = p['payload'] ?? p;
+              final d = (inner is Map && inner['d'] is Map)
+                  ? Map<String, dynamic>.from(inner['d'] as Map)
+                  : null;
+              final from = (d?['from'] ?? '').toString();
+              final sess = (d?['session'] ?? '').toString();
+              for (final uid in _rungStatus.keys) {
+                if (uid == from || (sess.isNotEmpty && sess.contains(uid))) {
+                  if (mounted && _rungStatus[uid] == GroupRingStatus.calling) {
+                    setState(() => _rungStatus[uid] = GroupRingStatus.ringing);
+                  }
+                }
+              }
+            },
+          )
+          .onBroadcast(
+            event: 'busy',
+            callback: (p) {
+              final inner = p['payload'] ?? p;
+              final d = (inner is Map && inner['d'] is Map)
+                  ? Map<String, dynamic>.from(inner['d'] as Map)
+                  : null;
+              final from = (d?['from'] ?? '').toString();
+              final sess = (d?['session'] ?? '').toString();
+              for (final uid in _rungStatus.keys) {
+                if (uid == from || (sess.isNotEmpty && sess.contains(uid))) {
+                  _ringTimers[uid]?.cancel();
+                  if (mounted) {
+                    setState(() => _rungStatus[uid] = GroupRingStatus.busy);
+                  }
+                }
+              }
+            },
+          )
+          .subscribe();
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
+    if (widget.existingRoom != null) {
+      _room = widget.existingRoom!;
+      _events = widget.existingEvents ?? _room.createListener();
+      _joined = true;
+      _seconds = widget.existingSeconds ?? 0;
+      ActiveCall.currentGroup.value = null;
+      _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() => _seconds++);
+      });
+    } else {
+      _room = Room(
+        roomOptions: RoomOptions(
+          adaptiveStream: true,
+          defaultScreenShareCaptureOptions: ScreenShareCaptureOptions(
+            params: const VideoParameters(
+              dimensions: VideoDimensions(1920, 1080),
+              encoding: VideoEncoding(maxBitrate: 3000000, maxFramerate: 60),
+            ),
+          ),
+          dynacast: true,
+          defaultCameraCaptureOptions:
+              CameraCaptureOptions(params: VideoParametersPresets.h360_169),
+          defaultVideoPublishOptions: VideoPublishOptions(
+            simulcast: true,
+            videoEncoding: VideoEncoding(maxBitrate: 500000, maxFramerate: 24),
+          ),
+        ),
+      );
+      _events = _room.createListener();
+    }
+    final initRung = widget.initialRungMembers;
+    if (initRung != null && initRung.isNotEmpty) {
+      for (final u in initRung) {
+        _trackRungMember(u);
+      }
+    } else {
+      final g = _group;
+      if (g != null) {
+        for (final u in g.members) {
+          if (u != widget.myUid) _trackRungMember(u);
+        }
+      }
+    }
+    _listenRingEvents();
     _room.addListener(_onChange);
     widget.contactController.photos.addListener(_onChange);
     widget.groupController.groups.addListener(_onChange);
@@ -111,10 +240,19 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
         if (mounted && !_leaving) _leave();
       });
     WakelockPlus.enable();
-    _join();
+    if (widget.existingRoom == null) {
+      _join();
+    }
   }
 
   void _onChange() {
+    for (final p in _room.remoteParticipants.values) {
+      if (_rungStatus.containsKey(p.identity)) {
+        _ringTimers[p.identity]?.cancel();
+        _ringTimers.remove(p.identity);
+        _rungStatus.remove(p.identity);
+      }
+    }
     if (_held) _muteIncoming(true);
     if (mounted) setState(() {});
   }
@@ -312,7 +450,63 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
   Future<void> _leave() async {
     if (_leaving) return;
     _leaving = true;
+    _minimized = false;
+    ActiveCall.currentGroup.value = null;
     if (mounted) Navigator.of(context).pop();
+  }
+
+  void _minimize() {
+    if (!_joined || _leaving) return;
+    _minimized = true;
+    ActiveCall.currentGroup.value = ActiveGroupCallInfo(
+      groupId: widget.groupId,
+      groupName: widget.groupName,
+      emoji: widget.emoji,
+      color: widget.color,
+      mode: widget.mode,
+      video: widget.video,
+      getSeconds: () => _seconds,
+      onReturn: () {
+        appNavKey.currentState?.push(
+          MaterialPageRoute(
+            builder: (_) => GroupCallScreen(
+              groupId: widget.groupId,
+              groupName: widget.groupName,
+              video: widget.video,
+              emoji: widget.emoji,
+              color: widget.color,
+              mode: widget.mode,
+              groupController: widget.groupController,
+              contactController: widget.contactController,
+              myUid: widget.myUid,
+              existingRoom: _room,
+              existingSeconds: _seconds,
+              existingEvents: _events,
+            ),
+          ),
+        );
+      },
+      onEnd: () async {
+        await _leave();
+      },
+    );
+    Navigator.of(context).pop('minimize');
+  }
+
+  void _ringAgain(String uid) {
+    GroupRinger.ring(
+      groupId: widget.groupId,
+      groupName: widget.groupName,
+      emoji: widget.emoji,
+      color: widget.color,
+      mode: widget.mode,
+      members: [uid],
+      video: widget.video,
+      fromUid: widget.myUid,
+      only: [uid],
+    );
+    _trackRungMember(uid);
+    setState(() {});
   }
 
   Future<void> _addPeople() async {
@@ -325,6 +519,8 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
       context,
       widget.contactController,
       exclude: inRoom,
+      rungStatus: _rungStatus,
+      onRingAgain: _ringAgain,
     );
     if (uids == null || uids.isEmpty) return;
     GroupRinger.ring(
@@ -338,6 +534,10 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
       fromUid: widget.myUid,
       only: uids,
     );
+    for (final u in uids) {
+      _trackRungMember(u);
+    }
+    setState(() {});
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Calling them...')),
@@ -351,6 +551,8 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
       context,
       widget.contactController,
       exclude: g.members.toSet(),
+      rungStatus: _rungStatus,
+      onRingAgain: _ringAgain,
     );
     if (uids == null || uids.isEmpty) return;
     final err = await widget.groupController.addMembers(g.id, uids);
@@ -366,6 +568,10 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
         fromUid: widget.myUid,
         only: uids,
       );
+      for (final u in uids) {
+        _trackRungMember(u);
+      }
+      setState(() {});
     }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -375,6 +581,22 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
 
   @override
   void dispose() {
+    if (_minimized) {
+      _clock?.cancel();
+      _room.removeListener(_onChange);
+      widget.contactController.photos.removeListener(_onChange);
+      widget.groupController.groups.removeListener(_onChange);
+      super.dispose();
+      return;
+    }
+    ActiveCall.currentGroup.value = null;
+    for (final t in _ringTimers.values) {
+      t.cancel();
+    }
+    _ringTimers.clear();
+    if (_signalSub != null) {
+      Supabase.instance.client.removeChannel(_signalSub!);
+    }
     _clock?.cancel();
     _liveTimer?.cancel();
     _stopLive();
@@ -545,13 +767,144 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
     );
   }
 
+  Widget _rungTile(String uid, GroupRingStatus status) {
+    final photos = widget.contactController.photos.value;
+    if (!photos.containsKey(uid)) {
+      widget.contactController.fetchPhoto(uid);
+    }
+    final name = widget.groupController.nameOf(uid);
+    Color statusColor;
+    String statusLabel;
+    IconData statusIcon;
+
+    switch (status) {
+      case GroupRingStatus.calling:
+        statusColor = Colors.white70;
+        statusLabel = 'Calling';
+        statusIcon = Icons.phone_forwarded;
+        break;
+      case GroupRingStatus.ringing:
+        statusColor = Colors.amber;
+        statusLabel = 'Ringing';
+        statusIcon = Icons.ring_volume;
+        break;
+      case GroupRingStatus.noAnswer:
+        statusColor = Colors.grey.shade400;
+        statusLabel = 'No answer';
+        statusIcon = Icons.phone_missed;
+        break;
+      case GroupRingStatus.declined:
+        statusColor = const Color(0xFFEF5350); // Soft red
+        statusLabel = 'Declined';
+        statusIcon = Icons.call_end;
+        break;
+      case GroupRingStatus.busy:
+        statusColor = Colors.orange.shade400;
+        statusLabel = 'On another call';
+        statusIcon = Icons.phone_paused;
+        break;
+    }
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: statusColor.withOpacity(0.5),
+          width: 1,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          color: Colors.black45,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Center(
+                child: UserAvatar(
+                  name: name,
+                  photoUrl: photos[uid],
+                  radius: 36,
+                ),
+              ),
+              Positioned(
+                left: 8,
+                bottom: 8,
+                right: 8,
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 13),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black87,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: statusColor, width: 1),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(statusIcon, color: statusColor, size: 12),
+                      const SizedBox(width: 4),
+                      Text(
+                        statusLabel,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _layout(List<Participant> all) {
-    if (all.length == 1) {
-      return Padding(padding: const EdgeInsets.all(8), child: _tile(all[0]));
+    final allWidgets = <Widget>[
+      for (final p in all) _tile(p),
+      for (final entry in _rungStatus.entries)
+        _rungTile(entry.key, entry.value),
+    ];
+    if (allWidgets.length == 1) {
+      return Padding(padding: const EdgeInsets.all(8), child: allWidgets[0]);
     }
     final pinned = all.where((p) => p.identity == _pinned).firstOrNull;
     if (pinned != null) {
-      final others = all.where((p) => p != pinned).toList();
+      final otherParticipants =
+          all.where((p) => p != pinned).map((p) => _tile(p));
+      final otherRung =
+          _rungStatus.entries.map((e) => _rungTile(e.key, e.value));
+      final others = [...otherParticipants, ...otherRung];
       return Column(
         children: [
           Expanded(
@@ -560,27 +913,28 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
               child: _tile(pinned),
             ),
           ),
-          SizedBox(
-            height: 112,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-              itemCount: others.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (_, i) => SizedBox(width: 90, child: _tile(others[i])),
+          if (others.isNotEmpty)
+            SizedBox(
+              height: 112,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                itemCount: others.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (_, i) => SizedBox(width: 90, child: others[i]),
+              ),
             ),
-          ),
         ],
       );
     }
-    if (all.length == 2) {
+    if (allWidgets.length == 2) {
       return Column(
         children: [
-          for (final p in all)
+          for (final w in allWidgets)
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(5),
-                child: _tile(p),
+                child: w,
               ),
             ),
         ],
@@ -592,7 +946,7 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
       mainAxisSpacing: 8,
       crossAxisSpacing: 8,
       childAspectRatio: 0.85,
-      children: [for (final p in all) _tile(p)],
+      children: allWidgets,
     );
   }
 
@@ -636,8 +990,14 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
       child: Row(
         children: [
           IconButton(
-            tooltip: 'Leave',
-            onPressed: _leave,
+            tooltip: 'Minimize',
+            onPressed: () {
+              if (_joined) {
+                _minimize();
+              } else {
+                _leave();
+              }
+            },
             icon: const Icon(Icons.keyboard_arrow_down,
                 color: Colors.white, size: 30),
           ),
@@ -860,7 +1220,12 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _leave();
+        if (didPop) return;
+        if (_joined) {
+          _minimize();
+        } else {
+          _leave();
+        }
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -871,7 +1236,7 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
             SafeArea(
               child: Column(
                 children: [
-                  _topBar(all.length),
+                  _topBar(all.length + _rungStatus.length),
                   Expanded(
                     child: _error != null
                         ? Center(

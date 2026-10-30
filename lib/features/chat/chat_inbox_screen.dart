@@ -7,19 +7,34 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../utils/user_avatar.dart';
 import '../../utils/settings/chat_prefs.dart';
 import '../../core/security/e2ee_service.dart';
+import '../../config/app_colors.dart';
 import '../contacts/contact_controller.dart';
 import '../contacts/contact_model.dart';
+import '../groups/group_controller.dart';
+import '../groups/group_chat_screen.dart';
 import 'chat_screen.dart';
 
 class _Conv {
-  final ContactModel contact;
+  final ContactModel? contact;
+  final GroupModel? group;
   final DateTime at;
   final String preview;
   final int unread;
-  _Conv(this.contact, this.at, this.preview, this.unread);
+
+  _Conv({
+    this.contact,
+    this.group,
+    required this.at,
+    required this.preview,
+    required this.unread,
+  });
+
+  bool get isGroup => group != null;
+  String get name => isGroup ? group!.name : (contact?.displayName ?? '');
+  String get id => isGroup ? group!.id : (contact?.uid ?? '');
 }
 
-/// All chats in one list, newest message on top (like Instagram).
+/// All chats in one list, newest message on top (holding normal and group chats).
 class ChatInboxScreen extends StatefulWidget {
   final ContactController contactController;
   final String myUid;
@@ -38,12 +53,15 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
   List<_Conv> _list = [];
   bool _loading = true;
   RealtimeChannel? _ch;
+  late final GroupController _gc = GroupController(widget.myUid);
 
   @override
   void initState() {
     super.initState();
+    _gc.start();
     _load();
     widget.contactController.contacts.addListener(_onContacts);
+    _gc.groups.addListener(_onContacts);
     _ch = Supabase.instance.client
         .channel('chat_inbox')
         .onPostgresChanges(
@@ -58,12 +76,20 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
           table: 'voice_messages',
           callback: (_) => _load(),
         )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'group_messages',
+          callback: (_) => _load(),
+        )
         .subscribe();
   }
 
   @override
   void dispose() {
     widget.contactController.contacts.removeListener(_onContacts);
+    _gc.groups.removeListener(_onContacts);
+    _gc.dispose();
     _deb?.cancel();
     _ch?.unsubscribe();
     super.dispose();
@@ -164,7 +190,7 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
       }
     } catch (_) {}
 
-    // chats saved on this phone
+    // 1:1 chats saved on this phone
     final dir = await getApplicationDocumentsDirectory();
     final out = <_Conv>[];
     for (final c in contacts) {
@@ -202,9 +228,46 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
       if (ChatPrefs.locked.value.contains('u:${c.uid}')) {
         text = '🔒 Locked chat';
       }
-      out.add(_Conv(c, at, text,
-          (unreadChat[c.uid] ?? 0) + (unheard[c.uid] ?? 0)));
+      out.add(_Conv(
+        contact: c,
+        at: at,
+        preview: text,
+        unread: (unreadChat[c.uid] ?? 0) + (unheard[c.uid] ?? 0),
+      ));
     }
+
+    // Group chats
+    final groups = _gc.groups.value;
+    for (final g in groups) {
+      try {
+        final rows = await db
+            .from('group_messages')
+            .select('body, created_at, from_uid')
+            .eq('group_id', g.id)
+            .order('created_at', ascending: false)
+            .limit(1);
+        if (rows is List && rows.isNotEmpty) {
+          final r = rows.first as Map;
+          final at = DateTime.parse(r['created_at'].toString()).toLocal();
+          var rawBody = (r['body'] ?? '').toString();
+          String body;
+          if (E2eeService.isEncryptedText(rawBody)) {
+            body = await E2eeService.decryptGroupText(g.id, me, rawBody);
+          } else {
+            body = rawBody;
+          }
+          final isLocked = ChatPrefs.locked.value.contains('g:${g.id}');
+          final preview = isLocked ? '🔒 Locked chat' : body;
+          out.add(_Conv(
+            group: g,
+            at: at,
+            preview: preview,
+            unread: 0,
+          ));
+        }
+      } catch (_) {}
+    }
+
     out.sort((a, b) => b.at.compareTo(a.at));
     if (!mounted) return;
     setState(() {
@@ -214,33 +277,59 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
   }
 
   Future<void> _open(_Conv v) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ChatScreen(
-          contactName: v.contact.displayName,
-          contactUid: v.contact.uid,
-          myUid: widget.myUid,
-          photoUrl: widget.contactController.photos.value[v.contact.uid],
+    if (v.isGroup) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => GroupChatScreen(
+            groupController: _gc,
+            groupId: v.group!.id,
+            contactController: widget.contactController,
+            myUid: widget.myUid,
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(
+            contactName: v.contact!.displayName,
+            contactUid: v.contact!.uid,
+            myUid: widget.myUid,
+            photoUrl: widget.contactController.photos.value[v.contact!.uid],
+          ),
+        ),
+      );
+    }
     _load();
   }
 
   @override
   Widget build(BuildContext context) {
     final cc = widget.contactController;
+    final bg = AppColors.screenBackground(context);
+    final textMain = AppColors.textMain(context);
+    final textSec = AppColors.textSecondary(context);
+    final tileFill = AppColors.tileFill(context);
+    final tileBorder = AppColors.tileBorder(context);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Chats')),
+      backgroundColor: bg,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: Text('Chats', style: TextStyle(color: textMain)),
+        iconTheme: IconThemeData(color: textMain),
+      ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(child: CircularProgressIndicator(color: AppColors.accent(context)))
           : _list.isEmpty
-              ? const Center(
+              ? Center(
                   child: Padding(
-                    padding: EdgeInsets.all(24),
+                    padding: const EdgeInsets.all(24),
                     child: Text(
-                      'No chats yet. Open a friend and say hi.',
+                      'No chats yet. Open a friend or group and say hi.',
                       textAlign: TextAlign.center,
+                      style: TextStyle(color: textSec),
                     ),
                   ),
                 )
@@ -257,25 +346,33 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(18),
                           side: BorderSide(
-                            color: bold
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.black12,
+                            color: bold ? AppColors.accent(context) : tileBorder,
                           ),
                         ),
-                        tileColor: Theme.of(context)
-                            .colorScheme
-                            .primary
-                            .withOpacity(bold ? 0.12 : 0.05),
+                        tileColor: tileFill,
                         contentPadding: const EdgeInsets.symmetric(
                             horizontal: 14, vertical: 6),
-                        leading: UserAvatar(
-                          name: v.contact.displayName,
-                          photoUrl: cc.photos.value[v.contact.uid],
-                        ),
+                        leading: v.isGroup
+                            ? Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: Color(v.group!.color),
+                                  shape: BoxShape.circle,
+                                ),
+                                alignment: Alignment.center,
+                                child: Text(v.group!.emoji,
+                                    style: const TextStyle(fontSize: 22)),
+                              )
+                            : UserAvatar(
+                                name: v.contact!.displayName,
+                                photoUrl: cc.photos.value[v.contact!.uid],
+                              ),
                         title: Text(
-                          v.contact.displayName,
+                          v.name,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
+                            color: textMain,
                             fontWeight:
                                 bold ? FontWeight.w700 : FontWeight.w500,
                           ),
@@ -285,6 +382,7 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
+                            color: bold ? textMain : textSec,
                             fontWeight:
                                 bold ? FontWeight.w600 : FontWeight.normal,
                           ),
@@ -293,11 +391,16 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
                           mainAxisSize: MainAxisSize.min,
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(_when(v.at),
-                                style: const TextStyle(fontSize: 12)),
+                            Text(
+                              _when(v.at),
+                              style: TextStyle(fontSize: 12, color: textSec),
+                            ),
                             if (bold) ...[
                               const SizedBox(height: 4),
-                              Badge(label: Text('${v.unread}')),
+                              Badge(
+                                backgroundColor: AppColors.accent(context),
+                                label: Text('${v.unread}'),
+                              ),
                             ],
                           ],
                         ),

@@ -12,6 +12,7 @@ import '../voice/voice_chat_screen.dart';
 import '../chat/chat_screen.dart';
 import '../chat/locked_chat_view.dart';
 import '../../utils/settings/chat_prefs.dart';
+import '../../config/app_colors.dart';
 
 /// Personal page of one contact: photo, name, ID, call buttons and the
 /// call history with this person.
@@ -228,6 +229,7 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.screenBackground(context),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
           final c = widget.contactController.contacts.value

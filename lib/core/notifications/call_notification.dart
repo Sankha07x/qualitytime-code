@@ -278,7 +278,60 @@ class CallNotification {
         }
         await p.setInt('gread_$gid', DateTime.now().millisecondsSinceEpoch);
       }
-      if (r.id != null) await _plugin.cancel(r.id!);
+      if (isReply && r.id != null) {
+        final origText = m['t']?.toString() ?? '';
+        final senderName = m['n']?.toString() ?? 'QualityTime';
+        final updatedBody = origText.isNotEmpty
+            ? '$origText\nYou: $text'
+            : 'You: $text';
+        var accent = 0xFF009688;
+        try {
+          accent = p.getInt('set_accent') ?? accent;
+        } catch (_) {}
+        await _plugin.show(
+          r.id!,
+          senderName,
+          updatedBody,
+          NotificationDetails(
+            android: AndroidNotificationDetails(
+              'messages_v1',
+              'Messages and alerts',
+              channelDescription:
+                  'New chats, missed calls and friend requests',
+              importance: Importance.high,
+              priority: Priority.high,
+              category: AndroidNotificationCategory.message,
+              color: Color(accent),
+              styleInformation: BigTextStyleInformation(updatedBody),
+              showWhen: true,
+              actions: const <AndroidNotificationAction>[
+                AndroidNotificationAction(
+                  'reply',
+                  'Reply',
+                  showsUserInterface: false,
+                  cancelNotification: false,
+                  inputs: <AndroidNotificationActionInput>[
+                    AndroidNotificationActionInput(
+                        label: 'Type a message'),
+                  ],
+                ),
+                AndroidNotificationAction(
+                  'call_now',
+                  'Call now',
+                  showsUserInterface: true,
+                ),
+              ],
+            ),
+          ),
+          payload: jsonEncode({
+            ...m,
+            't': origText,
+            'last_reply': text,
+          }),
+        );
+      } else if (r.id != null) {
+        await _plugin.cancel(r.id!);
+      }
     } catch (e) {
       debugPrint('QUICK: $e');
       if (isReply && r.id != null) {
@@ -332,6 +385,15 @@ class CallNotification {
     }
     if (a == 'end') {
       endCallListener?.call();
+      return;
+    }
+    if (a == 'call' || a == 'call_now') {
+      final pm = _parse(r.payload);
+      if (pm != null) {
+        final data = <String, dynamic>{...pm, 'action': a};
+        pendingOpen = data;
+        openListener?.call(data);
+      }
       return;
     }
     final pm = _parse(r.payload);
@@ -609,11 +671,16 @@ class CallNotification {
                       'Mark as read',
                       showsUserInterface: false,
                     ),
+                    AndroidNotificationAction(
+                      'call',
+                      'Call',
+                      showsUserInterface: true,
+                    ),
                   ]
                 : null,
           ),
         ),
-        payload: jsonEncode({'k': kind, 'u': uid, 'g': gid, 'v': video}),
+        payload: jsonEncode({'k': kind, 'u': uid, 'g': gid, 'v': video, 'n': name, 't': text}),
       );
     } catch (e) {
       debugPrint('INFO: $e');
