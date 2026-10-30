@@ -127,6 +127,7 @@ class _ContactsScreenState extends State<ContactsScreen>
   _ContactOrGroupItem? _selectedItem;
 
   ChatService? _inlineChatService;
+  Object? _ringToken;
   GroupChatService? _inlineGroupChatService;
   VoiceService? _inlineVoiceService;
   final VoicePlayerController _inlineVoicePlayer = VoicePlayerController();
@@ -606,7 +607,12 @@ class _ContactsScreenState extends State<ContactsScreen>
     _groupPoll?.cancel();
     _unreadDebounce?.cancel();
     _presence.dispose();
-    _chatCh?.unsubscribe();
+    final cch = _chatCh;
+    if (cch != null) {
+      Supabase.instance.client
+          .removeChannel(cch)
+          .then((_) {}, onError: (_) {});
+    }
     _unread.dispose();
     _preview.dispose();
     _missed.dispose();
@@ -675,7 +681,9 @@ class _ContactsScreenState extends State<ContactsScreen>
 
   Future<bool> _friendSafe(String uid) async {
     try {
-      return await widget.contactController.isFriend(uid);
+      return await widget.contactController
+          .isFriend(uid)
+          .timeout(const Duration(seconds: 5));
     } catch (_) {
       return _isSaved(uid);
     }
@@ -723,7 +731,7 @@ class _ContactsScreenState extends State<ContactsScreen>
     _waiting = true;
     final wasHeld = first.onHold.value;
     try {
-      if (!await widget.contactController.isFriend(call.fromUid)) {
+      if (!await _friendSafe(call.fromUid)) {
         _service.sendBusy(toUid: call.fromUid, sessionId: call.sessionId);
         return;
       }
@@ -818,7 +826,7 @@ class _ContactsScreenState extends State<ContactsScreen>
         if (run != null &&
             run.phase.value == CallPhase.active &&
             _incomingSession == null) {
-          _answerWaiting(call, run);
+          _answerWaiting(call, run).catchError((_) {});
           return;
         }
         _service.sendBusy(toUid: call.fromUid, sessionId: call.sessionId);
@@ -835,6 +843,16 @@ class _ContactsScreenState extends State<ContactsScreen>
     _service.sendRinging(toUid: call.fromUid, sessionId: call.sessionId);
     if (!kIsWeb) CallNotification.cancel();
     try {
+      final ringToken = Object();
+      _ringToken = ringToken;
+      Timer(const Duration(seconds: 35), () {
+        if (mounted &&
+            identical(_ringToken, ringToken) &&
+            _incomingSession == call.sessionId) {
+          _cancelledSession = call.sessionId;
+          Navigator.of(context).pop(false);
+        }
+      });
       final cached = widget.contactController.photos.value[call.fromUid];
       final photo = cached != null
           ? (cached.isEmpty ? null : cached)
@@ -987,7 +1005,8 @@ class _ContactsScreenState extends State<ContactsScreen>
             .from('groups')
             .select('name, emoji, color, mode')
             .eq('id', gid)
-            .maybeSingle();
+            .maybeSingle()
+            .timeout(const Duration(seconds: 8));
         if (r != null && mounted) {
           await _openGroupCall(
             gid,
@@ -1215,7 +1234,13 @@ class _ContactsScreenState extends State<ContactsScreen>
       declineSub.cancel();
       busySub.cancel();
       _tones.stopRingback();
-      await _service.stopRinging(toUid: contact.uid, sessionId: sessionId);
+      _service
+          .stopRinging(toUid: contact.uid, sessionId: sessionId)
+          .catchError((_) {});
+      Timer(const Duration(seconds: 4), () {
+        _callTileStatus.remove(contact.uid);
+        if (mounted) setState(() {});
+      });
       _callingUid = null;
       _outgoingController = null;
       if (_yieldTo == null &&
@@ -1241,7 +1266,7 @@ class _ContactsScreenState extends State<ContactsScreen>
     // Simultaneous call: now answer the other person's call instead.
     final y = _yieldTo;
     _yieldTo = null;
-    if (y != null && mounted) _answerYielded(y);
+    if (y != null && mounted) _answerYielded(y).catchError((_) {});
   }
 
   Future<void> _answerYielded(IncomingCall call) async {
@@ -1533,6 +1558,8 @@ void _openInbox() {
     _inlineChatService = null;
     _inlineGroupChatService?.dispose();
     _inlineGroupChatService = null;
+    _voiceTimer?.cancel();
+    _recordingVoice = false;
     _inlineVoiceService?.dispose();
     _inlineVoiceService = null;
   }
@@ -1591,15 +1618,31 @@ void _openInbox() {
     }
   }
 
+  void _inlineSendFailed(String text, String err, {required bool restore}) {
+    if (!mounted) return;
+    if (restore && _inlineTextCtrl.text.isEmpty) {
+      _inlineTextCtrl.text = text;
+      _inlineTextCtrl.selection =
+          TextSelection.collapsed(offset: text.length);
+      setState(() => _inlineHasText = true);
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+  }
+
   Future<void> _sendInlineText() async {
     final text = _inlineTextCtrl.text.trim();
     if (text.isEmpty || _selectedItem == null) return;
     _inlineTextCtrl.clear();
     setState(() => _inlineHasText = false);
     if (_selectedItem!.isGroup) {
-      await _inlineGroupChatService?.send(text);
+      final gerr = await _inlineGroupChatService?.send(text);
+      if (gerr != null) _inlineSendFailed(text, gerr, restore: false);
     } else {
-      await _inlineChatService?.sendText(text);
+      final cerr = await _inlineChatService?.sendText(text);
+      if (cerr != null) {
+        _inlineSendFailed(text, cerr, restore: true);
+        return;
+      }
     }
     HapticFeedback.lightImpact();
   }
@@ -1609,7 +1652,11 @@ void _openInbox() {
     final x = await openFile();
     if (x == null) return;
     try {
-      await _inlineChatService!.sendFile(File(x.path), x.name);
+      final ferr = await _inlineChatService!.sendFile(File(x.path), x.name);
+      if (ferr != null && mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(ferr)));
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1668,7 +1715,14 @@ void _openInbox() {
       return;
     }
     try {
-      await _inlineVoiceService!.send(r.file, r.seconds);
+      final verr = await _inlineVoiceService!.send(r.file, r.seconds);
+      if (verr != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(verr)));
+        }
+        return;
+      }
       HapticFeedback.lightImpact();
     } catch (_) {
       if (mounted) {
@@ -2275,11 +2329,12 @@ void _openInbox() {
         }
 
         return ListView.builder(
+          reverse: true,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           itemCount: items.length,
           itemBuilder: (context, i) {
-            final it = items[i];
-            return _buildInlineBubble(it);
+            final it = items[items.length - 1 - i];
+            return RepaintBoundary(child: _buildInlineBubble(it));
           },
         );
       },
@@ -2407,9 +2462,10 @@ void _openInbox() {
         }
         return ListView.builder(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          reverse: true,
           itemCount: msgs.length,
           itemBuilder: (context, i) {
-            final m = msgs[i];
+            final m = msgs[msgs.length - 1 - i];
             final mine = m.fromUid == widget.myUid;
             final senderName = _groupController.nameOf(m.fromUid);
             return Align(

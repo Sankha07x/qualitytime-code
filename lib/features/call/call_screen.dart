@@ -381,6 +381,15 @@ class _CallScreenState extends State<CallScreen> {
       'mode': 'friends',
       'video': video,
     });
+    await Future.delayed(const Duration(milliseconds: 800));
+    await widget.controller.sendGroupInvite({
+      'gid': rid,
+      'name': 'Call',
+      'emoji': '📞',
+      'color': 0xFF0D9488,
+      'mode': 'friends',
+      'video': video,
+    });
     await _goGroup(rid, 'Call', '📞', 0xFF0D9488, 'friends', video);
   }
 

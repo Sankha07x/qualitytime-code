@@ -112,6 +112,9 @@ class CallController {
         _applyQuality();
         break;
       case CallConnectionState.failed:
+        if (_phaseController.value != CallPhase.ended) {
+          _phaseController.value = CallPhase.connecting;
+        }
         _armConnectGuard(45);
       case CallConnectionState.disconnected:
         _phaseController.value = CallPhase.connecting;
@@ -220,6 +223,8 @@ class CallController {
     try {
       final t = await mediaManager.recaptureCamera(want);
       if (t != null) await _peerManager.replaceVideo(t);
+    } catch (e) {
+      debugPrint('syncCapture failed: $e');
     } finally {
       _captureBusy = false;
     }
@@ -261,7 +266,12 @@ class CallController {
     if (screenSharing.value) return; // stop sharing first
     _cameraEnabled = !_cameraEnabled;
     if (_cameraEnabled) {
-      final t = await mediaManager.reopenCamera();
+      MediaStreamTrack? t;
+      try {
+        t = await mediaManager.reopenCamera();
+      } catch (e) {
+        debugPrint('reopenCamera failed: $e');
+      }
       if (t == null) {
         _cameraEnabled = false;
         return;
@@ -283,12 +293,22 @@ class CallController {
   /// Voice -> video: opens the camera and renegotiates the call.
   Future<bool> enableVideo() async {
     if (screenSharing.value) return false;
-    final track = await mediaManager.addVideoTrack();
+    MediaStreamTrack? track;
+    try {
+      track = await mediaManager.addVideoTrack();
+    } catch (e) {
+      debugPrint('addVideoTrack failed: $e');
+    }
     final stream = mediaManager.localStream;
     if (track == null || stream == null) return false;
     _cameraEnabled = true;
     videoActive.value = true;
-    await _peerManager.addVideo(track, stream);
+    try {
+      await _peerManager.addVideo(track, stream);
+    } catch (e) {
+      debugPrint('addVideo failed: $e');
+      return false;
+    }
     if (_ongoingStarted && _connectedAt != null) {
       CallNotification.startOngoing(
         name: peerName.isEmpty ? 'Call' : peerName,
@@ -358,7 +378,11 @@ class CallController {
     }
   }
 
+  bool _ending = false;
+
   Future<void> endCall({bool notifyPeer = true}) async {
+    if (_ending) return;
+    _ending = true;
     _endedAt ??= DateTime.now();
     if (screenSharing.value) {
       screenSharing.value = false;
@@ -368,14 +392,14 @@ class CallController {
     _connectGuard?.cancel();
     if (notifyPeer) {
       try {
-        await _peerManager.sendEnd();
+        await _peerManager.sendEnd().timeout(const Duration(seconds: 3));
       } catch (_) {}
     }
     try {
       await _peerManager.endCall();
     } catch (_) {}
     try {
-      await _signaling.leaveSession();
+      await _signaling.leaveSession().timeout(const Duration(seconds: 4));
     } catch (_) {}
     try {
       await mediaManager.dispose();

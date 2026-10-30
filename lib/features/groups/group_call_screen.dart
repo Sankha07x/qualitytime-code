@@ -13,6 +13,7 @@ import '../call/animated_call_button.dart';
 import '../call/active_call.dart';
 import '../../main.dart' show appNavKey;
 import '../../core/signaling/group_ring_service.dart';
+import '../../core/signaling/incoming_call_service.dart';
 import '../contacts/contact_controller.dart';
 import 'group_controller.dart';
 import 'groups_screen.dart';
@@ -117,7 +118,37 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
     });
   }
 
+  StreamSubscription<Map<String, dynamic>>? _rawSub;
+
   void _listenRingEvents() {
+    _rawSub = IncomingCallService.current?.onRaw.listen((m) {
+      final ev = m['event'].toString();
+      final from = m['from'].toString();
+      final sess = m['session'].toString();
+      for (final uid in _rungStatus.keys.toList()) {
+        if (!(uid == from || (sess.isNotEmpty && sess.contains(uid)))) {
+          continue;
+        }
+        if (ev == 'decline') {
+          _ringTimers[uid]?.cancel();
+          if (mounted) {
+            setState(() => _rungStatus[uid] = GroupRingStatus.declined);
+          }
+        } else if (ev == 'ringing') {
+          if (mounted && _rungStatus[uid] == GroupRingStatus.calling) {
+            setState(() => _rungStatus[uid] = GroupRingStatus.ringing);
+          }
+        } else if (ev == 'busy') {
+          _ringTimers[uid]?.cancel();
+          if (mounted) {
+            setState(() => _rungStatus[uid] = GroupRingStatus.busy);
+          }
+        }
+      }
+    });
+  }
+
+  void _listenRingEventsOld() {
     try {
       _signalSub = Supabase.instance.client
           .channel('user:${widget.myUid}')
@@ -237,7 +268,14 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
         if (_held) _send({'t': 'hold', 'v': true});
       })
       ..on<RoomDisconnectedEvent>((_) {
-        if (mounted && !_leaving) _leave();
+        if (_leaving) return;
+        if (mounted) {
+          _leave();
+        } else if (_minimized) {
+          _leaving = true;
+          _teardown();
+          ActiveCall.currentGroup.value = null;
+        }
       });
     WakelockPlus.enable();
     if (widget.existingRoom == null) {
@@ -275,7 +313,15 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
       if (d is! Map || d['token'] == null) {
         throw (d is Map ? d['error'] : null) ?? 'Could not get a call token.';
       }
-      await _room.connect(d['url'] as String, d['token'] as String);
+      await _room
+          .connect(d['url'] as String, d['token'] as String)
+          .timeout(const Duration(seconds: 25));
+      if (!mounted || _leaving) {
+        try {
+          await _room.disconnect();
+        } catch (_) {}
+        return;
+      }
       await _room.localParticipant?.setMicrophoneEnabled(true);
       if (widget.video) {
         await _room.localParticipant?.setCameraEnabled(true);
@@ -289,7 +335,11 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
       if (mounted) setState(() => _joined = true);
       _startLive();
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) {
+        setState(() => _error = e is TimeoutException
+            ? 'Connection is too slow. Check your internet and try again.'
+            : e.toString());
+      }
     }
   }
 
@@ -416,7 +466,7 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
     if (mounted) setState(() {});
   }
 
-  Timer? _liveTimer;
+  static Timer? _liveTimer;
 
   void _startLive() {
     if (widget.groupId.startsWith('call_')) return;
@@ -432,6 +482,7 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
     }
 
     beat();
+    _liveTimer?.cancel();
     _liveTimer = Timer.periodic(const Duration(seconds: 20), (_) => beat());
   }
 
@@ -447,6 +498,36 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
     }();
   }
 
+  bool _tornDown = false;
+
+  Future<void> _teardown() async {
+    if (_tornDown) return;
+    _tornDown = true;
+    for (final t in _ringTimers.values) {
+      t.cancel();
+    }
+    _ringTimers.clear();
+    _rawSub?.cancel();
+    final sub = _signalSub;
+    _signalSub = null;
+    if (sub != null) {
+      Supabase.instance.client.removeChannel(sub).then((_) {}, onError: (_) {});
+    }
+    _clock?.cancel();
+    _liveTimer?.cancel();
+    _stopLive();
+    try {
+      _events.dispose();
+    } catch (_) {}
+    WakelockPlus.disable();
+    try {
+      await _room.disconnect();
+    } catch (_) {}
+    try {
+      await _room.dispose();
+    } catch (_) {}
+  }
+
   Future<void> _leave() async {
     if (_leaving) return;
     _leaving = true;
@@ -458,6 +539,10 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
   void _minimize() {
     if (!_joined || _leaving) return;
     _minimized = true;
+    _rawSub?.cancel();
+    _rawSub = null;
+    final minAt = DateTime.now();
+    final baseSec = _seconds;
     ActiveCall.currentGroup.value = ActiveGroupCallInfo(
       groupId: widget.groupId,
       groupName: widget.groupName,
@@ -465,7 +550,7 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
       color: widget.color,
       mode: widget.mode,
       video: widget.video,
-      getSeconds: () => _seconds,
+      getSeconds: () => baseSec + DateTime.now().difference(minAt).inSeconds,
       onReturn: () {
         appNavKey.currentState?.push(
           MaterialPageRoute(
@@ -480,14 +565,16 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
               contactController: widget.contactController,
               myUid: widget.myUid,
               existingRoom: _room,
-              existingSeconds: _seconds,
+              existingSeconds: baseSec + DateTime.now().difference(minAt).inSeconds,
               existingEvents: _events,
             ),
           ),
         );
       },
       onEnd: () async {
-        await _leave();
+        _leaving = true;
+        await _teardown();
+        ActiveCall.currentGroup.value = null;
       },
     );
     Navigator.of(context).pop('minimize');
@@ -594,8 +681,9 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
       t.cancel();
     }
     _ringTimers.clear();
+    _rawSub?.cancel();
     if (_signalSub != null) {
-      Supabase.instance.client.removeChannel(_signalSub!);
+      Supabase.instance.client.removeChannel(_signalSub!).then((_) {}, onError: (_) {});
     }
     _clock?.cancel();
     _liveTimer?.cancel();
@@ -606,8 +694,12 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
     _events.dispose();
     WakelockPlus.disable();
     () async {
-      await _room.disconnect();
-      await _room.dispose();
+      try {
+        await _room.disconnect();
+      } catch (_) {}
+      try {
+        await _room.dispose();
+      } catch (_) {}
     }();
     super.dispose();
   }

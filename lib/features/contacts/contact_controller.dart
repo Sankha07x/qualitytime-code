@@ -148,7 +148,7 @@ class ContactController {
           .maybeSingle();
       url = r?['photo_url']?.toString() ?? '';
     } catch (_) {
-      _fetching.remove(uid);
+      Future.delayed(const Duration(seconds: 30), () => _fetching.remove(uid));
       return null;
     }
     _fetching.remove(uid);

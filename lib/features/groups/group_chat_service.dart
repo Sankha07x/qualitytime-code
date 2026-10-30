@@ -142,7 +142,13 @@ class GroupChatService {
 
   Future<GroupMessage> _parseRow(Map<String, dynamic> r) async {
     final m = GroupMessage.fromRow(r);
-    final b = await E2eeService.decryptGroupText(groupId, myUid, m.body);
+    String b;
+    try {
+      b = await E2eeService.decryptGroupText(groupId, myUid, m.body);
+    } catch (e) {
+      debugPrint('GCHAT decrypt failed: $e');
+      b = '🔒 Could not decrypt this message';
+    }
     final rt = m.replyText == null
         ? null
         : await E2eeService.decryptGroupText(groupId, myUid, m.replyText!);
@@ -214,10 +220,15 @@ class GroupChatService {
               'id, from_uid, body, created_at, reply_to, reply_text, reply_from, edited_at')
           .eq('group_id', groupId)
           .order('created_at', ascending: false)
-          .limit(300);
+          .limit(300)
+          .timeout(const Duration(seconds: 15));
       final server = <GroupMessage>[];
       for (final r in rows as List) {
-        server.add(await _parseRow(Map<String, dynamic>.from(r)));
+        try {
+          server.add(await _parseRow(Map<String, dynamic>.from(r)));
+        } catch (e) {
+          debugPrint('GCHAT row skipped: $e');
+        }
       }
 
       final keep = messages.value.where((m) => m.local).toList();
@@ -263,6 +274,10 @@ class GroupChatService {
     }
     try {
       final encBody = await E2eeService.encryptGroupText(groupId, myUid, t);
+      if (!E2eeService.isEncryptedText(encBody)) {
+        _setState(localId, 2);
+        return 'Could not secure this message. Tap the message to retry.';
+      }
       final encReply = rText == null
           ? null
           : await E2eeService.encryptGroupText(groupId, myUid, rText);
@@ -327,6 +342,9 @@ class GroupChatService {
     if (t == m.body) return null;
     try {
       final enc = await E2eeService.encryptGroupText(groupId, myUid, t);
+      if (!E2eeService.isEncryptedText(enc)) {
+        return 'Could not secure this edit. Try again.';
+      }
       await _c
           .from('group_messages')
           .update({'body': enc})
@@ -436,7 +454,9 @@ class GroupChatService {
     _disposed = true;
     _markT?.cancel();
     _tickT?.cancel();
-    _ch?.unsubscribe();
+    final ch = _ch;
+    _ch = null;
+    if (ch != null) _c.removeChannel(ch).then((_) {}, onError: (_) {});
     receipts.dispose();
     messages.dispose();
     loading.dispose();

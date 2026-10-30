@@ -91,7 +91,13 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
     _gc.groups.removeListener(_onContacts);
     _gc.dispose();
     _deb?.cancel();
-    _ch?.unsubscribe();
+    final ch = _ch;
+    _ch = null;
+    if (ch != null) {
+      Supabase.instance.client
+          .removeChannel(ch)
+          .then((_) {}, onError: (_) {});
+    }
     super.dispose();
   }
 
@@ -123,7 +129,7 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
       }
       _running = true;
       try {
-        await _loadNow();
+        await _loadNow().timeout(const Duration(seconds: 30));
       } catch (_) {
         if (mounted) setState(() => _loading = false);
       }

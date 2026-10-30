@@ -39,6 +39,11 @@ class IncomingCallService {
   final SupabaseClient _client = Supabase.instance.client;
   RealtimeChannel? _myChannel;
   Timer? _ringTimer;
+  Timer? _restartTimer;
+  static IncomingCallService? current;
+  final _rawController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get onRaw => _rawController.stream;
+  bool _disposed = false;
 
   final _ringController = StreamController<IncomingCall>.broadcast();
   final _cancelController = StreamController<String>.broadcast();
@@ -65,7 +70,29 @@ class IncomingCallService {
   }
 
   Future<void> start() async {
+    final old = _myChannel;
+    _myChannel = null;
+    if (old != null) {
+      try {
+        await _client.removeChannel(old).timeout(const Duration(seconds: 5));
+      } catch (_) {}
+    }
     _myChannel = _client.channel('user:$myUid');
+    current = this;
+    for (final ev in const ['decline', 'ringing', 'busy']) {
+      _myChannel!.onBroadcast(
+        event: ev,
+        callback: (p) {
+          final d = _data(p);
+          if (d == null || _rawController.isClosed) return;
+          _rawController.add({
+            'event': ev,
+            'from': (d['from'] ?? '').toString(),
+            'session': (d['session'] ?? '').toString(),
+          });
+        },
+      );
+    }
     _myChannel!
         .onBroadcast(
           event: 'ring',
@@ -130,10 +157,27 @@ class IncomingCallService {
         )
         .subscribe((status, error) {
       debugPrint('RING listener status: $status $error');
+      if (!_disposed &&
+          (status == RealtimeSubscribeStatus.channelError ||
+              status == RealtimeSubscribeStatus.timedOut)) {
+        _restartTimer?.cancel();
+        _restartTimer = Timer(const Duration(seconds: 5), () {
+          if (!_disposed) start();
+        });
+      }
     });
   }
 
-  Future<void> _send(String toUid, String event, Map<String, dynamic> data) async {
+  static Future<void> _chain = Future.value();
+
+  Future<void> _send(String toUid, String event, Map<String, dynamic> data) {
+    final next = _chain.then((_) => _sendNow(toUid, event, data));
+    _chain = next.catchError((_) {});
+    return next;
+  }
+
+  Future<void> _sendNow(
+      String toUid, String event, Map<String, dynamic> data) async {
     final ch = _client.channel('user:$toUid');
     try {
       final ready = Completer<void>();
@@ -148,7 +192,9 @@ class IncomingCallService {
     } catch (e) {
       debugPrint('RING send failed: $e');
     } finally {
-      await _client.removeChannel(ch);
+      try {
+        await _client.removeChannel(ch).timeout(const Duration(seconds: 5));
+      } catch (_) {}
     }
   }
 
@@ -159,7 +205,18 @@ class IncomingCallService {
     required bool video,
   }) {
     _ringTimer?.cancel();
-    void ring() => _send(toUid, 'ring', {
+    bool inFlight = false;
+    void ring() {
+      if (inFlight) return;
+      inFlight = true;
+      _send(toUid, 'ring', {
+        'from': myUid,
+        'session': sessionId,
+        'video': video,
+      }).whenComplete(() => inFlight = false);
+    }
+
+    Future<void> ringRaw() => _send(toUid, 'ring', {
           'from': myUid,
           'session': sessionId,
           'video': video,
@@ -210,7 +267,15 @@ class IncomingCallService {
 
   void dispose() {
     _ringTimer?.cancel();
-    if (_myChannel != null) _client.removeChannel(_myChannel!);
+    _disposed = true;
+    if (identical(current, this)) current = null;
+    _rawController.close();
+    _restartTimer?.cancel();
+    final ch = _myChannel;
+    _myChannel = null;
+    if (ch != null) {
+      _client.removeChannel(ch).then((_) {}, onError: (_) {});
+    }
     _ringController.close();
     _cancelController.close();
     _declineController.close();

@@ -56,12 +56,24 @@ class PushNotificationService {
       final token = await _fcm.getToken();
       if (token != null) await _save(token);
       _fcm.onTokenRefresh.listen(_save);
+      _db.auth.onAuthStateChange.listen((s) async {
+        if (s.event != AuthChangeEvent.signedIn &&
+            s.event != AuthChangeEvent.initialSession) {
+          return;
+        }
+        try {
+          final t = await _fcm.getToken();
+          if (t != null) await _save(t);
+        } catch (e) {
+          debugPrint('PUSH: re-save failed: $e');
+        }
+      });
     } catch (e) {
       debugPrint('PUSH: init failed: $e');
     }
   }
 
-  Future<void> _save(String token) async {
+  Future<void> _save(String token, {bool retry = true}) async {
     try {
       final uid = _db.auth.currentUser?.id;
       if (uid == null) return;
@@ -69,6 +81,10 @@ class PushNotificationService {
       debugPrint('PUSH: token saved');
     } catch (e) {
       debugPrint('PUSH: save failed: $e');
+      if (retry) {
+        Future.delayed(
+            const Duration(seconds: 30), () => _save(token, retry: false));
+      }
     }
   }
 }

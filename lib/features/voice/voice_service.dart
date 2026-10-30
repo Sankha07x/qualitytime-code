@@ -53,6 +53,7 @@ class VoiceService {
   final AudioRecorder _rec = AudioRecorder();
   RealtimeChannel? _ch;
   bool _disposed = false;
+  bool _subscribedOnce = false;
   DateTime? _recStart;
 
   VoiceService({required this.myUid, required this.peerUid});
@@ -68,7 +69,12 @@ class VoiceService {
           table: 'voice_messages',
           callback: (_) => refresh(),
         )
-        .subscribe();
+        .subscribe((status, error) {
+          if (status == RealtimeSubscribeStatus.subscribed) {
+            if (_subscribedOnce) refresh();
+            _subscribedOnce = true;
+          }
+        });
   }
 
   Future<void> refresh() async {
@@ -168,6 +174,7 @@ class VoiceService {
     try {
       final rawBytes = await f.readAsBytes();
       final encBytes = await E2eeService.encryptPeerBytes(peerUid, rawBytes);
+      if (identical(encBytes, rawBytes)) throw StateError('no key');
       await _c.storage.from('voice').uploadBinary(
             path,
             encBytes,
@@ -226,8 +233,19 @@ class VoiceService {
     final p = m.path;
     if (p == null || m.toUid != myUid) return null;
     try {
-      final encBytes = await _c.storage.from('voice').download(p);
+      final encBytes = await _c.storage
+          .from('voice')
+          .download(p)
+          .timeout(const Duration(seconds: 60));
       final bytes = await E2eeService.decryptPeerBytes(peerUid, encBytes);
+      if (bytes.length > 4 &&
+          bytes[0] == 0x51 &&
+          bytes[1] == 0x54 &&
+          bytes[2] == 0x45 &&
+          bytes[3] == 0x31) {
+        E2eeService.forgetPeer(peerUid);
+        throw StateError('voice not decrypted yet');
+      }
       await local.writeAsBytes(bytes, flush: true);
     } catch (e) {
       debugPrint('VOICE download failed: $e');
@@ -279,7 +297,9 @@ class VoiceService {
 
   void dispose() {
     _disposed = true;
-    _ch?.unsubscribe();
+    final ch = _ch;
+    _ch = null;
+    if (ch != null) _c.removeChannel(ch).then((_) {}, onError: (_) {});
     _rec.dispose();
     messages.dispose();
   }

@@ -220,7 +220,13 @@ class PeerConnectionManager {
       debugPrint('createOffer failed: $e');
       return;
     }
-    await _peerConnection!.setLocalDescription(offer);
+    try {
+      await _peerConnection!.setLocalDescription(offer);
+    } catch (e) {
+      _offering = false;
+      debugPrint('setLocalDescription failed: $e');
+      return;
+    }
     _pendingOffer = {'type': offer.type, 'sdp': offer.sdp};
     await signaling.sendSessionDescription(_pendingOffer!);
   }
@@ -230,6 +236,12 @@ class PeerConnectionManager {
       await _handleRemoteDescriptionInner(data);
     } catch (e) {
       debugPrint('handleRemoteDescription failed: $e');
+      if (data['type'] == 'offer' &&
+          data['renegotiate'] != true &&
+          data['restart'] != true) {
+        _offerReceived = false;
+        signaling.sendSessionDescription({'type': 'ready'});
+      }
     }
   }
 
@@ -320,6 +332,7 @@ class PeerConnectionManager {
 
     final description = RTCSessionDescription(data['sdp'], data['type']);
     await _peerConnection?.setRemoteDescription(description);
+    await _flushPendingIce();
 
     if (type == 'offer') {
       await _preferCodecs();
@@ -332,7 +345,39 @@ class PeerConnectionManager {
     }
   }
 
+  final List<RTCIceCandidate> _pendingIce = [];
+
+  Future<void> _flushPendingIce() async {
+    final pc = _peerConnection;
+    if (pc == null) return;
+    final list = List<RTCIceCandidate>.from(_pendingIce);
+    _pendingIce.clear();
+    for (final c in list) {
+      try {
+        await pc.addCandidate(c);
+      } catch (e) {
+        debugPrint('queued addCandidate failed: $e');
+      }
+    }
+  }
+
   Future<void> _handleRemoteIceCandidate(Map<String, dynamic> data) async {
+    final c = data['candidate'];
+    if (c == null || c is! String || c.isEmpty) return;
+    final pc = _peerConnection;
+    if (pc == null) return;
+    RTCSessionDescription? remote;
+    try {
+      remote = await pc.getRemoteDescription();
+    } catch (_) {}
+    if (remote == null) {
+      _pendingIce.add(RTCIceCandidate(c, data['sdpMid'], data['sdpMLineIndex']));
+      return;
+    }
+    await _addIceNow(data);
+  }
+
+  Future<void> _addIceNow(Map<String, dynamic> data) async {
     final c = data['candidate'];
     if (c == null || c is! String || c.isEmpty) return;
     try {

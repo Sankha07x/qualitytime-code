@@ -71,6 +71,9 @@ class CallNotification {
       final session = m?['s']?.toString() ?? '';
       if (uid.isEmpty || session.isEmpty) return;
       await _mark(0);
+      try {
+        await _plugin.cancel(_id);
+      } catch (_) {}
       await _declineHttp(uid, session);
       try {
         await Supabase.initialize(
@@ -154,6 +157,13 @@ class CallNotification {
     final list = <Map<String, dynamic>>[];
     for (final r in rows as List) {
       final rawB = r['body']?.toString();
+      if (rawB != null &&
+          E2eeService.isEncryptedText(rawB) &&
+          await E2eeService.decryptPeerText(peer, rawB) ==
+              '🔒 Encrypted message') {
+        E2eeService.forgetPeer(peer);
+        continue;
+      }
       final rawRx = r['reply_text']?.toString();
       list.add({
         'id': r['id'],
@@ -238,6 +248,7 @@ class CallNotification {
         await _saveIncomingText(db, me, peer);
         if (isReply) {
           final enc = await E2eeService.encryptPeerText(peer, text);
+          if (!E2eeService.isEncryptedText(enc)) throw 'key not ready';
           final row = await db
               .from('chat_messages')
               .insert({
@@ -270,6 +281,7 @@ class CallNotification {
         if (gid.isEmpty) return;
         if (isReply) {
           final enc = await E2eeService.encryptGroupText(gid, me, text);
+          if (!E2eeService.isEncryptedText(enc)) throw 'key not ready';
           await db.from('group_messages').insert({
             'group_id': gid,
             'from_uid': me,
@@ -340,7 +352,7 @@ class CallNotification {
           await _plugin.show(
             r.id!,
             'Reply not sent',
-            'Open QualityTime and try again.',
+            'Open QualityTime and try again.\nYour message: ${r.input ?? ''}',
             const NotificationDetails(
               android: AndroidNotificationDetails(
                 'messages_v1',
@@ -500,7 +512,8 @@ class CallNotification {
       final p = await SharedPreferences.getInstance();
       accent = p.getInt('set_accent') ?? accent;
     } catch (_) {}
-    final bigIcon = await _photo(data['caller_photo']?.toString());
+    final bigIcon = await _photo(data['caller_photo']?.toString())
+        .timeout(const Duration(seconds: 4), onTimeout: () => null);
     await _plugin.show(
       _id,
       name,
@@ -588,6 +601,38 @@ class CallNotification {
   /// Chat, missed call or friend request alert (app closed or in background).
   static Future<void> showInfo(Map<String, dynamic> data) async {
     try {
+      await _showInfoPrepared(data).timeout(const Duration(seconds: 8));
+    } catch (_) {
+      await _showInfoFallback(data);
+    }
+  }
+
+  /// Used when decrypting takes too long: still shows the alert, but never
+  /// the text of an encrypted message, and never for a muted chat.
+  static Future<void> _showInfoFallback(Map<String, dynamic> data) async {
+    try {
+      const calls = {'missed_call', 'friend_request', 'group_call'};
+      final kind = data['kind']?.toString() ?? '';
+      var d = data;
+      if (!calls.contains(kind)) {
+        final gid = data['group_id']?.toString() ?? '';
+        final uid = data['from_uid']?.toString() ?? '';
+        final key =
+            (kind == 'group_chat' && gid.isNotEmpty) ? 'g:$gid' : 'u:$uid';
+        final p = await SharedPreferences.getInstance();
+        await p.reload();
+        final muted = p.getStringList('muted_chats') ?? const <String>[];
+        if (muted.contains(key)) return;
+        if (E2eeService.isEncryptedText(data['text']?.toString())) {
+          d = {...data, 'text': 'New message'};
+        }
+      }
+      await _showInfoRaw(d);
+    } catch (_) {}
+  }
+
+  static Future<void> _showInfoPrepared(Map<String, dynamic> data) async {
+    try {
       const calls = {'missed_call', 'friend_request', 'group_call'};
       final kind = data['kind']?.toString() ?? '';
       if (!calls.contains(kind)) {
@@ -609,6 +654,11 @@ class CallNotification {
               anonKey: AppConfig.supabaseAnonKey,
             );
           } catch (_) {}
+          for (var i = 0;
+              i < 6 && Supabase.instance.client.auth.currentUser == null;
+              i++) {
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
           final raw = data['text'].toString();
           final dec = (kind == 'group_chat' && gid.isNotEmpty)
               ? await E2eeService.decryptGroupText(

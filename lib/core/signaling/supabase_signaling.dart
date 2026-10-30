@@ -32,7 +32,7 @@ class SupabaseSignaling implements SignalingInterface {
     _channel = null;
     if (old != null) {
       try {
-        await _client.removeChannel(old);
+        await _client.removeChannel(old).timeout(const Duration(seconds: 5));
       } catch (_) {}
     }
     final ch = _client.channel('call:$_sessionId');
@@ -104,7 +104,7 @@ class SupabaseSignaling implements SignalingInterface {
     _channel = null;
     if (ch != null) {
       try {
-        await _client.removeChannel(ch);
+        await _client.removeChannel(ch).timeout(const Duration(seconds: 5));
       } catch (e) {
         debugPrint('SIGNAL leave failed: $e');
       }
@@ -116,7 +116,7 @@ class SupabaseSignaling implements SignalingInterface {
       final ch = _channel;
       if (ch == null) return;
       try {
-        await ch.sendBroadcastMessage(event: event, payload: {'d': data});
+        await ch.sendBroadcastMessage(event: event, payload: {'d': data}).timeout(const Duration(seconds: 5));
         return;
       } catch (e) {
         debugPrint('SIGNAL send failed ($event): $e');

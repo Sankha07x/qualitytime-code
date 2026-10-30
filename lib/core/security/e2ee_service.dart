@@ -24,6 +24,9 @@ class E2eeService {
 
   static bool isEncryptedText(String? s) => s != null && s.startsWith(_prefix);
 
+  /// Forget the saved key for a friend so it is loaded again next time.
+  static void forgetPeer(String uid) => _peerKeys.remove(uid);
+
   static Future<void> init(String myUid) async {
     try {
       final db = Supabase.instance.client;
@@ -92,6 +95,19 @@ class E2eeService {
       return key;
     } catch (e) {
       debugPrint('E2EE peer key: $e');
+      try {
+        final prefs2 = await SharedPreferences.getInstance();
+        final cached = prefs2.getString('e2ee_pk_$peerUid') ?? '';
+        if (cached.isNotEmpty && _myPair != null) {
+          final shared2 = await _x.sharedSecretKey(
+            keyPair: _myPair!,
+            remotePublicKey: SimplePublicKey(base64Decode(cached),
+                type: KeyPairType.x25519),
+          );
+          return await _hkdf.deriveKey(
+              secretKey: shared2, nonce: utf8.encode('qt-e2ee-v1'));
+        }
+      } catch (_) {}
       return null;
     }
   }
@@ -163,6 +179,8 @@ class E2eeService {
   static Future<SecretKey?> ensureGroupKey(
       String gid, String myUid, List<String> members) async {
     var gk = _groupKeys[gid];
+    final cachedBefore = gk != null;
+    var hadRow = false;
     final db = Supabase.instance.client;
     try {
       if (gk == null) {
@@ -173,6 +191,7 @@ class E2eeService {
             .eq('member_uid', myUid)
             .maybeSingle();
         if (row != null) {
+          hadRow = true;
           final dec = await decryptPeerText(
               row['from_uid'].toString(), row['encrypted_key'].toString());
           if (!dec.startsWith('🔒')) {
@@ -185,6 +204,7 @@ class E2eeService {
         gk = await _aes.newSecretKey();
         _groupKeys[gid] = gk;
       }
+      if (cachedBefore && members.isEmpty) return gk;
       final rawB64 = base64Encode(await gk.extractBytes());
       for (final m in {...members, myUid}) {
         final enc = await encryptPeerText(m, rawB64);

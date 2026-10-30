@@ -93,6 +93,9 @@ class ChatService {
   RealtimeChannel? _ch;
   bool _disposed = false;
   bool _busy = false;
+  bool _again = false;
+  bool _subscribedOnce = false;
+  DateTime _busyAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   ChatService({required this.myUid, required this.peerUid});
 
@@ -117,11 +120,45 @@ class ChatService {
     }
   }
 
+  static final Set<String> _deletedIds = {};
+
+  /// Merges what is already on disk (another open chat window may have
+  /// saved messages this copy has not seen), so no message is lost.
+  Future<List<Map<String, dynamic>>> _mergedForSave(File f) async {
+    final mine = <String, ChatMessage>{
+      for (final m in messages.value) m.id: m,
+    };
+    final extra = <Map<String, dynamic>>[];
+    try {
+      if (await f.exists()) {
+        final list = jsonDecode(await f.readAsString()) as List;
+        for (final j in list) {
+          final id = (j['id'] ?? '').toString();
+          if (id.isEmpty || _deletedIds.contains(id)) continue;
+          final have = mine[id];
+          if (have == null) {
+            extra.add(Map<String, dynamic>.from(j));
+          } else {
+            final st = (j['status'] as num?)?.toInt() ?? 0;
+            if (st > have.status) have.status = st;
+          }
+        }
+      }
+    } catch (_) {}
+    final out = <Map<String, dynamic>>[
+      for (final m in mine.values) m.toJson(),
+      ...extra,
+    ];
+    out.sort((a, b) => DateTime.parse(a['at'].toString())
+        .compareTo(DateTime.parse(b['at'].toString())));
+    return out;
+  }
+
   Future<void> _save() async {
     try {
       final f = await _store();
       await f.writeAsString(
-          jsonEncode([for (final m in messages.value) m.toJson()]),
+          jsonEncode(await _mergedForSave(f)),
           flush: true);
     } catch (e) {
       debugPrint('CHAT save failed: $e');
@@ -153,12 +190,26 @@ class ChatService {
             syncSent();
           },
         )
-        .subscribe();
+        .subscribe((status, error) {
+          if (status == RealtimeSubscribeStatus.subscribed) {
+            if (_subscribedOnce) {
+              fetchIncoming();
+              syncSent();
+            }
+            _subscribedOnce = true;
+          }
+        });
   }
 
   /// Takes new messages from the cloud, saves them here, deletes the cloud copy.
   Future<void> fetchIncoming() async {
-    if (_disposed || _busy) return;
+    if (_disposed) return;
+    if (_busy &&
+        DateTime.now().difference(_busyAt) < const Duration(minutes: 2)) {
+      _again = true;
+      return;
+    }
+    _busyAt = DateTime.now();
     _busy = true;
     try {
       final rows = await _c
@@ -167,7 +218,8 @@ class ChatService {
           .eq('from_uid', peerUid)
           .eq('to_uid', myUid)
           .isFilter('read_at', null)
-          .order('created_at');
+          .order('created_at')
+          .timeout(const Duration(seconds: 15));
       for (final r in rows as List) {
         final row = Map<String, dynamic>.from(r);
         if (row['kind'] == 'edit') {
@@ -200,9 +252,20 @@ class ChatService {
         String? localName;
         if (isFile && cloudPath != null) {
           try {
-            final encBytes = await _c.storage.from(bucket).download(cloudPath);
+            final encBytes = await _c.storage
+                .from(bucket)
+                .download(cloudPath)
+                .timeout(const Duration(seconds: 60));
             final bytes =
                 await E2eeService.decryptPeerBytes(peerUid, encBytes);
+            if (bytes.length > 4 &&
+                bytes[0] == 0x51 &&
+                bytes[1] == 0x54 &&
+                bytes[2] == 0x45 &&
+                bytes[3] == 0x31) {
+              E2eeService.forgetPeer(peerUid);
+              throw StateError('file not decrypted yet');
+            }
             localName = 'chatfile_${id}_${_safe(decFileName ?? 'file')}';
             await File('${(await _dir()).path}/$localName')
                 .writeAsBytes(bytes, flush: true);
@@ -215,6 +278,16 @@ class ChatService {
         final decBody = rawBody == null
             ? null
             : await E2eeService.decryptPeerText(peerUid, rawBody);
+        if ((rawBody != null &&
+                E2eeService.isEncryptedText(rawBody) &&
+                decBody == '🔒 Encrypted message') ||
+            (rawFileName != null &&
+                E2eeService.isEncryptedText(rawFileName) &&
+                decFileName == '🔒 Encrypted message')) {
+          E2eeService.forgetPeer(peerUid);
+          debugPrint('CHAT key not ready, will retry');
+          continue;
+        }
         final rawReply = row['reply_text'] as String?;
         final decReply = rawReply == null
             ? null
@@ -253,6 +326,10 @@ class ChatService {
     } catch (e) {
       debugPrint('CHAT fetch failed: $e');
     } finally {
+      if (_again && !_disposed) {
+        _again = false;
+        Future.microtask(fetchIncoming);
+      }
       _busy = false;
     }
   }
@@ -264,6 +341,9 @@ class ChatService {
     if (t.length > 4000) return 'Message is too long.';
     try {
       final encBody = await E2eeService.encryptPeerText(peerUid, t);
+      if (!E2eeService.isEncryptedText(encBody)) {
+        return 'Could not secure this message yet. Check your internet and try again.';
+      }
       final encReply = replyTo == null
           ? null
           : await E2eeService.encryptPeerText(peerUid, _snip(replyTo));
@@ -294,6 +374,9 @@ class ChatService {
       return null;
     } catch (e) {
       debugPrint('CHAT send failed: $e');
+      if (e is! PostgrestException) {
+        return 'No connection. Check your internet and try again.';
+      }
       return 'Could not send. You can only send to friends.';
     }
   }
@@ -320,6 +403,7 @@ class ChatService {
     try {
       final rawBytes = await sendF.readAsBytes();
       final encBytes = await E2eeService.encryptPeerBytes(peerUid, rawBytes);
+      if (identical(encBytes, rawBytes)) throw StateError('no key');
       await _c.storage.from(bucket).uploadBinary(
             path,
             encBytes,
@@ -333,6 +417,7 @@ class ChatService {
     }
     try {
       final encName = await E2eeService.encryptPeerText(peerUid, sendName);
+      if (!E2eeService.isEncryptedText(encName)) throw StateError('no key');
       final row = await _c
           .from('chat_messages')
           .insert({
@@ -362,6 +447,13 @@ class ChatService {
       return null;
     } catch (e) {
       debugPrint('CHAT file send failed: $e');
+      try {
+        await _c.storage.from(bucket).remove([path]);
+      } catch (_) {}
+      if (e is! PostgrestException) {
+        await cleanTemp();
+        return 'No connection. Check your internet and try again.';
+      }
       await cleanTemp();
       try {
         await _c.storage.from(bucket).remove([path]);
@@ -393,6 +485,9 @@ class ChatService {
     if (t == (m.body ?? '')) return null;
     try {
       final enc = await E2eeService.encryptPeerText(peerUid, t);
+      if (!E2eeService.isEncryptedText(enc)) {
+        return 'Could not secure this edit yet. Check your internet and try again.';
+      }
       await _c.from('chat_messages').insert({
         'from_uid': myUid,
         'to_uid': peerUid,
@@ -520,13 +615,16 @@ class ChatService {
       final f = await fileOf(m);
       if (f != null) await f.delete();
     } catch (_) {}
+    _deletedIds.add(m.id);
     messages.value = [for (final x in messages.value) if (x.id != m.id) x];
     await _save();
   }
 
   void dispose() {
     _disposed = true;
-    _ch?.unsubscribe();
+    final ch = _ch;
+    _ch = null;
+    if (ch != null) _c.removeChannel(ch).then((_) {}, onError: (_) {});
     messages.dispose();
   }
 }
